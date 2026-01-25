@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { Key, Save, Eye, EyeOff, CheckCircle } from 'lucide-react'
 
 const PROVIDERS = [
-    { id: 'openai', name: 'OpenAI API Key', placeholder: 'sk-...' },
-    { id: 'gemini', name: 'Google Gemini Key', placeholder: 'AIza...' },
-    { id: 'twitter', name: 'X (Twitter) Bearer Token', placeholder: 'AAAA...' },
-    { id: 'discord', name: 'Discord Bot Token', placeholder: 'MTA...' },
+    { id: 'openai_key', name: 'OpenAI API Key', placeholder: 'sk-...' },
+    { id: 'gemini_key', name: 'Google Gemini Key', placeholder: 'AIza...' },
+    { id: 'twitter_token', name: 'X (Twitter) Bearer Token', placeholder: 'AAAA...' },
+    { id: 'discord_token', name: 'Discord Bot Token', placeholder: 'MTA...' },
 ]
 
 export default function ApiKeyManager() {
@@ -18,23 +18,46 @@ export default function ApiKeyManager() {
     const [showKey, setShowKey] = useState<Record<string, boolean>>({})
     const supabase = createClient()
 
+    // Load existing keys (masked)
+    useEffect(() => {
+        async function loadKeys() {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (!user) return
+
+            const { data } = await supabase.from('user_secrets').select('*').eq('user_id', user.id).single()
+            if (data) {
+                setKeys(data)
+            }
+        }
+        loadKeys()
+    }, [])
+
     const handleSave = async (providerId: string) => {
         const key = keys[providerId]
         if (!key) return
 
         setSaving(prev => ({ ...prev, [providerId]: true }))
 
-        // TODO: In production, call a Server Action to encrypt this before saving!
-        // For MVP, we'll save to a 'secrets' table (user_id, key_type, encrypted_value)
-        // Here we simulate the save delay.
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) return
+
+        // Upsert the specific key
+        const updateData = { [providerId]: key, user_id: user.id }
+
+        const { error } = await supabase
+            .from('user_secrets')
+            .upsert(updateData, { onConflict: 'user_id' })
 
         setSaving(prev => ({ ...prev, [providerId]: false }))
-        setSaved(prev => ({ ...prev, [providerId]: true }))
 
-        setTimeout(() => {
-            setSaved(prev => ({ ...prev, [providerId]: false }))
-        }, 3000)
+        if (!error) {
+            setSaved(prev => ({ ...prev, [providerId]: true }))
+            setTimeout(() => {
+                setSaved(prev => ({ ...prev, [providerId]: false }))
+            }, 3000)
+        } else {
+            alert('Failed to save key: ' + error.message)
+        }
     }
 
     return (
