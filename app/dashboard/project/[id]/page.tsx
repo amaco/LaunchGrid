@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Play, Pause, MoreVertical, LayoutGrid } from 'lucide-react'
 import EditContextButton from '@/components/dashboard/edit-context-button'
+import RegenerateButton from '@/components/dashboard/regenerate-button'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -41,9 +42,7 @@ export default async function ProjectPage({ params }: Props) {
                     </div>
                     <div className="flex gap-2">
                         <EditContextButton project={project} />
-                        <button className="bg-accent/10 hover:bg-accent/20 text-accent px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                            Re-Generate Strategy
-                        </button>
+                        <RegenerateButton projectId={project.id} />
                     </div>
                 </div>
             </div>

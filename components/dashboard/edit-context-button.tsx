@@ -81,6 +81,14 @@ export default function EditContextButton({ project }: { project: any }) {
                                     <label className="block text-sm font-medium mb-1 text-foreground/70">Monthly Budget (USD)</label>
                                     <input type="number" name="budget" defaultValue={project.context?.budget} required min="0" className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white focus:outline-none focus:border-accent transition-colors" />
                                 </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium mb-1 text-foreground/70">AI Intelligence Provider</label>
+                                    <select name="aiProvider" defaultValue={project.context?.aiProvider || 'gemini'} className="w-full bg-white/5 border border-white/10 rounded-lg p-3 text-white focus:outline-none focus:border-accent transition-colors">
+                                        <option value="gemini" className="bg-black">Google Gemini 2.0 (Fast & Free)</option>
+                                        <option value="openai" className="bg-black">OpenAI GPT-4o (High Precision)</option>
+                                    </select>
+                                </div>
                             </div>
 
                             <div className="flex justify-end gap-3 pt-4 border-t border-white/5">

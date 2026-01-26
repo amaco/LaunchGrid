@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { AIFactory, AIProviderID } from '@/utils/ai/factory'
 import { redirect } from 'next/navigation'
+import { decrypt } from '@/utils/encryption'
 
 export async function createProjectAction(formData: FormData) {
     const supabase = await createClient()
@@ -40,7 +41,9 @@ export async function createProjectAction(formData: FormData) {
         .eq('user_id', user.id)
         .single();
 
-    const userApiKey = secrets ? secrets[`${selectedProvider}_key`] : undefined;
+    const userApiKey = secrets && secrets[`${selectedProvider}_key`]
+        ? decrypt(secrets[`${selectedProvider}_key`])
+        : undefined;
 
     // 3. Generate AI Strategy via Factory
     let blueprint;

@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { createClient } from '@/utils/supabase/client'
-import { Key, Save, Eye, EyeOff, CheckCircle } from 'lucide-react'
+import { saveUserSecretAction, hasUserSecretAction } from '@/app/actions/user-secrets'
+import { Key, Save, CheckCircle, ShieldCheck } from 'lucide-react'
 
 const PROVIDERS = [
     { id: 'openai_key', name: 'OpenAI API Key', placeholder: 'sk-...' },
@@ -15,21 +15,18 @@ export default function ApiKeyManager() {
     const [keys, setKeys] = useState<Record<string, string>>({})
     const [saving, setSaving] = useState<Record<string, boolean>>({})
     const [saved, setSaved] = useState<Record<string, boolean>>({})
-    const [showKey, setShowKey] = useState<Record<string, boolean>>({})
-    const supabase = createClient()
+    const [hasKey, setHasKey] = useState<Record<string, boolean>>({})
 
-    // Load existing keys (masked)
+    // check which keys exist (but don't load them!)
     useEffect(() => {
-        async function loadKeys() {
-            const { data: { user } } = await supabase.auth.getUser()
-            if (!user) return
-
-            const { data } = await supabase.from('user_secrets').select('*').eq('user_id', user.id).single()
-            if (data) {
-                setKeys(data)
+        async function checkKeys() {
+            const status: Record<string, boolean> = {}
+            for (const p of PROVIDERS) {
+                status[p.id] = await hasUserSecretAction(p.id)
             }
+            setHasKey(status)
         }
-        loadKeys()
+        checkKeys()
     }, [])
 
     const handleSave = async (providerId: string) => {
@@ -38,25 +35,19 @@ export default function ApiKeyManager() {
 
         setSaving(prev => ({ ...prev, [providerId]: true }))
 
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-
-        // Upsert the specific key
-        const updateData = { [providerId]: key, user_id: user.id }
-
-        const { error } = await supabase
-            .from('user_secrets')
-            .upsert(updateData, { onConflict: 'user_id' })
-
-        setSaving(prev => ({ ...prev, [providerId]: false }))
-
-        if (!error) {
+        try {
+            await saveUserSecretAction(providerId, key)
+            setKeys(prev => ({ ...prev, [providerId]: '' })) // Clear input for security
             setSaved(prev => ({ ...prev, [providerId]: true }))
+            setHasKey(prev => ({ ...prev, [providerId]: true }))
+
             setTimeout(() => {
                 setSaved(prev => ({ ...prev, [providerId]: false }))
             }, 3000)
-        } else {
-            alert('Failed to save key: ' + error.message)
+        } catch (e: any) {
+            alert('Failed to save: ' + e.message)
+        } finally {
+            setSaving(prev => ({ ...prev, [providerId]: false }))
         }
     }
 
@@ -69,28 +60,24 @@ export default function ApiKeyManager() {
                             <Key className="w-4 h-4 text-accent" />
                             {provider.name}
                         </h3>
-                        {saved[provider.id] && (
-                            <span className="text-green-400 text-xs flex items-center gap-1 animate-pulse">
-                                <CheckCircle className="w-3 h-3" /> Saved Encrypted
+                        {hasKey[provider.id] ? (
+                            <span className="text-green-400 text-xs flex items-center gap-1">
+                                <ShieldCheck className="w-3 h-3" /> Securely Stored
                             </span>
+                        ) : (
+                            <span className="text-foreground/30 text-xs">Not configured</span>
                         )}
                     </div>
 
                     <div className="flex gap-2">
                         <div className="relative flex-1">
                             <input
-                                type={showKey[provider.id] ? "text" : "password"}
+                                type="password"
                                 value={keys[provider.id] || ''}
                                 onChange={(e) => setKeys(prev => ({ ...prev, [provider.id]: e.target.value }))}
-                                placeholder={provider.placeholder}
+                                placeholder={hasKey[provider.id] ? "••••••••••••••••" : provider.placeholder}
                                 className="w-full bg-black/40 border border-white/10 rounded-lg py-2 pl-3 pr-10 text-sm font-mono focus:border-accent focus:ring-1 focus:ring-accent transition-all"
                             />
-                            <button
-                                onClick={() => setShowKey(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
-                                className="absolute right-3 top-2.5 text-foreground/30 hover:text-white transition-colors"
-                            >
-                                {showKey[provider.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                            </button>
                         </div>
 
                         <button
@@ -101,7 +88,7 @@ export default function ApiKeyManager() {
                             {saving[provider.id] ? (
                                 <span className="animate-spin text-xs">⏳</span>
                             ) : (
-                                <Save className="w-4 h-4" />
+                                saved[provider.id] ? <CheckCircle className="w-4 h-4 text-green-400" /> : <Save className="w-4 h-4" />
                             )}
                         </button>
                     </div>

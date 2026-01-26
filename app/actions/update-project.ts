@@ -15,6 +15,7 @@ export async function updateProjectContextAction(projectId: string, formData: Fo
         audience: formData.get('audience') as string,
         painPoints: formData.get('painPoints') as string,
         budget: parseInt(formData.get('budget') as string) || 0,
+        aiProvider: formData.get('aiProvider') as string, // Save preference
     }
 
     // Update Project Entry
