@@ -54,10 +54,12 @@ export default async function ProjectPage({ params }: Props) {
                 </div>
             </div>
 
-            {/* Pillars Grid */}
+            <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
+
+            {/* Channels Grid */}
             <section>
                 <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                    <LayoutGrid className="w-5 h-5 text-accent" /> Active Pillars
+                    <LayoutGrid className="w-5 h-5 text-accent" /> Active Channels
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                     {pillars.map((pillar: any) => (
@@ -73,7 +75,7 @@ export default async function ProjectPage({ params }: Props) {
             </section>
 
             {/* Workflows (LEGO Blocks) */}
-            <section>
+            < section >
                 <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
                     <span className="text-2xl">🧩</span> Active Workflows
                 </h2>
@@ -127,6 +129,11 @@ export default async function ProjectPage({ params }: Props) {
                                                             Ready
                                                         </span>
                                                     )}
+                                                    {latestTask?.status === 'extension_queued' && (
+                                                        <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold animate-pulse">
+                                                            Waiting for Browser...
+                                                        </span>
+                                                    )}
                                                 </div>
 
                                                 {/* Draft Preview if ready */}
@@ -148,7 +155,7 @@ export default async function ProjectPage({ params }: Props) {
                         </div>
                     ))}
                 </div>
-            </section>
-        </div>
+            </section >
+        </div >
     )
 }

@@ -24,30 +24,39 @@ export async function executeWorkflowAction(workflowId: string) {
 
     if (!workflow) throw new Error('Workflow not found')
 
-    // 2. Find the NEXT executable step (Pending or Review Needed?)
-    // For this MVP, we actually want to run a specific step OR the next pending one.
-    // Let's assume the button simply "Runs the next pending step".
+    // 2. Find the NEXT executable step
+    // We want the first step that does NOT have a 'completed' or 'review_needed' task.
+    // If a step has NO task, it is by definition pending.
 
-    // Fetch all tasks for this workflow to check status
+    // Fetch all tasks for this workflow
     const { data: existingTasks } = await supabase
         .from('tasks')
         .select('*')
-        .eq('project_id', workflow.project.id) // Corrected: project.id from workflow
+        .eq('project_id', workflow.project.id)
         .in('step_id', workflow.steps.map((s: any) => s.id))
 
-    // Find the first step that is NOT completed
     const stepsSorted = workflow.steps.sort((a: any, b: any) => a.position - b.position)
+
+    // Debugging: Log what we see
+    console.log("Steps found:", stepsSorted.length)
+    console.log("Tasks found:", existingTasks?.length)
+
     let targetStep = stepsSorted.find((s: any) => {
         const task = existingTasks?.find((t: any) => t.step_id === s.id)
-        return !task || (task.status !== 'completed' && task.status !== 'review_needed')
+        // If no task exists, it's pending. If task exists but not done, it's pending.
+        const isDone = task && (task.status === 'completed' || task.status === 'review_needed')
+        return !isDone
     })
 
     if (!targetStep) {
-        // If all are done, maybe reset? For now, just pick the last one or error
-        // Actually, if we want to "Run" a specific behavior, we might need a distinct action per step.
-        // For simplicity: We run the "next" step.
+        // Reset logic? If the user added a new step but "all previous" were done, this should have found the new one.
+        // If we are here, TRULY everything is done.
+        // Let's force a reset if they click run again? Or just alert.
+        console.log("Workflow seems complete")
         return { message: "Workflow is complete!" }
     }
+
+    console.log("Targeting Step:", targetStep.type, targetStep.id)
 
     // 3. Prepare AI Context & Dependencies
     const project = workflow.project
@@ -78,7 +87,7 @@ export async function executeWorkflowAction(workflowId: string) {
 
     // 5. Execute Step Handler
     const provider = AIFactory.getProvider(providerId);
-    let resultData;
+    let resultData: any;
 
     try {
         switch (targetStep.type) {
@@ -100,20 +109,40 @@ export async function executeWorkflowAction(workflowId: string) {
                 break;
 
             case 'SCAN_FEED':
-                // Simulator: In real life, this calls Twitter API
-                resultData = {
-                    found_items: [
-                        { id: 't1', text: "Just lost $5k trading crypto today. Risk management sucks.", author: "@sadtrader" },
-                        { id: 't2', text: "What is the best trading journal app in 2026?", author: "@curiouswhale" }
-                    ],
-                    summary: "Found 2 high-intent engagement opportunities."
+                // Check if we are in "Simulation Mode" (for free testing)
+                // In a real app, strict checks (env var or user setting) would go here.
+                // For MVP, if we have NO extension connected, we fallback to mock? 
+                // Actually, let's assume if they click Run, they want to try the real deal unless flagged.
+
+                // For now, let's force Real Mode if "is_mock" isn't explicitly requested (or we can toggle it).
+                // But previously I returned mock data. Let's start the queueing flow.
+
+                // QUEUE FOR EXTENSION
+                // We do NOT return resultData yet. We set a flag to save as 'extension_queued'.
+
+                const useRealExtension = true; // Hardcoded for now to enable the feature
+
+                if (useRealExtension) {
+                    // We return NULL results but set a special flag
+                    // The saving logic below needs to handle 'extension_queued' status.
+                    resultData = { pending_extension: true };
+                } else {
+                    // Simulator
+                    resultData = {
+                        is_mock: true,
+                        found_items: [
+                            { id: 't1', text: "Just lost $5k trading crypto today. Risk management sucks.", author: "@sadtrader" },
+                            { id: 't2', text: "What is the best trading journal app in 2026?", author: "@curiouswhale" }
+                        ],
+                        summary: "Found 2 high-intent engagement opportunities. (SIMULATION)"
+                    }
                 }
                 break;
 
             case 'SELECT_TARGETS':
                 // AI Logic: Pick the best ones from previous step
-                // For MVP: Pass through
                 resultData = {
+                    is_mock: previousStepOutput?.is_mock || false,
                     selected_items: previousStepOutput?.found_items || [],
                     rationale: "Selected all high-relevance items."
                 }
@@ -124,6 +153,21 @@ export async function executeWorkflowAction(workflowId: string) {
                 const targets = previousStepOutput?.selected_items || []
                 if (targets.length === 0) throw new Error("No targets to reply to.")
 
+                // COST PROTECTION: If data is mock, DO NOT call OpenAI.
+                if (previousStepOutput?.is_mock) {
+                    console.log("Skipping OpenAI call for Mock Data (Saving Tokens)")
+                    resultData = {
+                        is_mock: true,
+                        replies: targets.map((t: any) => ({
+                            target_id: t.id,
+                            reply: `(Simulated Reply) Hey ${t.author}, have you tried using a journal? It helps!`
+                        })),
+                        title: "Drafted 2 Replies (SIMULATED)"
+                    }
+                    break;
+                }
+
+                // Real Execution
                 // We'll just generate one bulk object for now or array
                 const comments = await Promise.all(targets.map(async (t: any) => {
                     const draft = await provider.generateContent({
@@ -155,22 +199,28 @@ export async function executeWorkflowAction(workflowId: string) {
     }
 
     // 6. Save or Update Task Result
-    // Check if task exists (retry?)
     const existingTask = existingTasks?.find((t: any) => t.step_id === targetStep.id)
+
+    // Determine status
+    let newStatus = 'review_needed';
+    if (resultData?.pending_extension) {
+        newStatus = 'extension_queued';
+        resultData = { info: "Waiting for Browser Extension..." }
+    }
 
     if (existingTask) {
         await supabase.from('tasks').update({
-            status: 'review_needed',
+            status: newStatus,
             output_data: resultData,
-            completed_at: new Date().toISOString()
+            completed_at: newStatus === 'extension_queued' ? null : new Date().toISOString()
         }).eq('id', existingTask.id)
     } else {
         await supabase.from('tasks').insert({
             step_id: targetStep.id,
             project_id: project.id,
-            status: 'review_needed', // or completed depending on step type
+            status: newStatus,
             output_data: resultData,
-            completed_at: new Date().toISOString()
+            completed_at: newStatus === 'extension_queued' ? null : new Date().toISOString()
         })
     }
 

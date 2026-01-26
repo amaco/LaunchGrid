@@ -1,172 +1,138 @@
-# LaunchGrid: High-Level Architecture & Concept
+# architecture.md — LaunchGrid (Marketing Automation OS)
 
 ## Overview
-**LaunchGrid** is a generalized AI-driven platform designed to automate, structure, and orchestrate complex digital marketing blueprints for SaaS and digital products. It transforms a static strategy (like the Trading Journal Blueprint) into a dynamic, execution-ready system.
 
-## The Problem
-Founders and marketers often have great plans but "get lost in the process" because:
-- Strategies are buried in PDFs/Docs.
-- Tasks are disconnected from content creation.
-- Measurement is manual and lagging.
-- Context switching between channels is exhausting.
+**LaunchGrid** is an AI-driven Marketing Automation OS that converts a marketing strategy into an executable, measurable, multi-channel system.
 
-## Core Concepts (Generalizing the Blueprint)
+It is designed around 5 decoupled engines:
 
-### 1. The Strategy Engine (Project-Centric Architect)
-The system is built hierarchically:
-- **Level 1: Project**: The root entity (e.g., "Trading Journal App").
-- **Level 2: Pillars**: Mediums involved in the project (Twitter, Discord).
-- **Level 3: Workflows**: Sequences of steps (e.g., "Launch Week").
-- **Level 4: Steps**: The atomic LEGO blocks.
+1. **Strategy Engine** — creates structured marketing blueprints
+2. **Orchestration Engine** — manages tasks, dependencies, and timelines
+3. **Content Engine** — generates channel-specific assets
+4. **Execution Engine** — safely interacts with external platforms
+5. **Analytics Engine** — measures real business outcomes
 
-This ensures that all marketing efforts are **Context-Aware**. A Discord post knows it's part of the "Trading Journal" project and can reference assets from the "Twitter" pillar.
-
-### 2. The Task & Timeline Orchestrator (Cross-Medium Manager)
-This engine manages dependencies *across* pillars:
-- **Sequential Triggering**: "Only draft the Discord announcement (Step B) AFTER the Twitter thread (Step A) is 12 hours old."
-- **Asset Sharing**: The image generated for Instagram is automatically resized and attached to the LinkedIn Post draft.
-- **Phased Roadmap**: Manages the rollout phases (Launch, Scale) across all active mediums simultaneously.
-
-### 3. The Content Factory (The "Creator")
-Generates channel-specific content aligned with the "Content Pillars" defined in the blueprint:
-- **Awareness (TOFU)**: Blog outlines, Infographic ideas.
-- **Consideration (MOFU)**: Case studies, YouTube scripts.
-- **Conversion (BOFU)**: Ad headlines, Landing page copy.
-- **Retention**: Discord lesson plans, community announcements.
-
-### 4. The Analytics Cockpit (The "Navigator")
-A simplified dashboard to track the "North Star" metrics:
-- **Blended CAC** (Customer Acquisition Cost).
-- **LTV** (Life-Time Value).
-- **Payback Period**.
-- **Channel Efficiency**.
+The system is **API-first**, **modular**, **LLM-friendly**, and **compliance-safe**.
 
 ---
 
-## High-Level Architecture
+## Core Design Principles
+
+- API > automation hacks
+- Human-in-the-loop for social actions (or transparent delegation)
+- Every action traceable and auditable
+- Every module independently scalable
+- LLMs operate as stateless workers over structured objects
+- Strict separation of: Strategy / Tasks / Content / Execution / Metrics
+
+---
+
+## System Domains (High Level)
 
 ```mermaid
 graph TD
-    subgraph "Frontend (Next.js/React)"
-        Dashboard["Blueprints Dashboard"]
-        Roadmap["Phased Execution Roadmap"]
-        ContentTab["Content Creator Workspace"]
-        Analytics["KPI Cockpit"]
-    end
+    FE[Frontend - Next.js]
 
-    subgraph "Backend (Node.js/Supabase)"
-        API["Core API Layer"]
-        DB[(PostgreSQL - Blueprints, Tasks, Metrics)]
-        Auth[Auth & Project Management]
-    end
+    SE[Strategy Engine]
+    OE[Orchestration Engine]
+    CE[Content Engine]
+    XE[Execution Engine]
+    AE[Analytics Engine]
 
-    subgraph "AI Layer (AI Factory)"
-        direction LR
-        Factory[AI Provider Factory]
-        Gemini[Google Gemini 2.0]
-        OpenAI[OpenAI GPT-4o]
-        Secrets[User Secrets Vault]
-        Factory --> Gemini
-        Factory --> OpenAI
-        Factory -.-> Secrets
-    end
+    DB[(PostgreSQL)]
+    Q[Redis / Queue]
+    AI[AI Provider Layer]
 
-    subgraph "External Integrations (Future)"
-        SocAPI["Social APIs (X, Discord)"]
-        AdAPI["Ad Platforms (Google, Meta)"]
-        TrackAPI["Tracking (Mixpanel, Stripe)"]
-    end
+    FE --> SE
+    FE --> OE
+    FE --> CE
+    FE --> AE
 
-    Dashboard --> API
-    API --> Factory
-    API --> DB
-    ContentTab --> Factory
-    Analytics --> TrackAPI
-    Roadmap --> API
+    SE --> DB
+    OE --> DB
+    CE --> DB
+    AE --> DB
+
+    OE --> Q
+    CE --> AI
+    SE --> AI
+
+    XE --> External[External APIs]
+    XE --> Browser[Browser Bridge]
 ```
 
-## Detailed Component Breakdown
+## Data Model Hierarchy (LLM-Friendly)
+Everything revolves around structured objects.
 
-### 1. Strategy Generator
-- **Input**: Product Name, URL, Target Audience (JSON), Budget Range, Core Goal.
-- **Output**: A structured `Blueprint` object containing:
-    - **Pillar Set**: A list of active channels (both standard and custom).
-    - **Pillar Workflows**: Specific automated task sequences for each medium.
-    - Content Pillars (Thematic areas).
-    - Implementation Phases (0-4).
-    - Resource Allocation (Budget %).
+### Project Tree
+```
+Project
+ ├── Pillars (Channels)
+ │     ├── Workflows
+ │     │     ├── Steps (atomic tasks)
+```
 
-### 2. Managed Roadmap
-- A Kanban or Gantt-style view.
-- Tasks automatically populate based on the Blueprint status.
-- Integration with "Content Factory" so a task like "Post Twitter Thread" links directly to a draft.
+### Key Objects
+*   **Project**: Represents one product/company marketing system.
+*   **Pillar (Channel)**: A channel or medium (X, LinkedIn, Blog, Email, Discord, Ads).
+*   **Workflow**: A sequence of steps for a specific goal (Launch, Weekly Content, Lead Magnet).
+*   **Step (Atomic Unit)**: The smallest executable unit.
 
-### 3. The Copilot Bridge (The Automation Key)
-This is not just a "helper" but the **Core Automation Engine** for restrictive platforms.
-
-- **Tier 1: Direct API (Fully Autonomous)**
-    - **Used for**: Discord, Slack, Email (Resend), Stripe.
-    - **Mechanism**: Server-to-Server OAuth. The app posts for you while you sleep.
-    - **Risk**: Zero. These platforms encourage bot automation.
-
-- **Tier 2: The Browser Extension ("The Grey Hat Bridge")**
-    - **Used for**: X (Twitter), LinkedIn, Instagram, Reddit.
-    - **Mechanism**: The extension injects a "Ghost User" script into your browser.
-    - **Workflow**:
-        1. SaaS schedules a post.
-        2. Extension detects the scheduled time.
-        3. Extension opens the tab in the background (or uses via active session).
-        4. Extension types and clicks "Post" *as if it were you*.
-    - **Benefit**: **100% Ban Safe** because it uses your real fingerprint and IP. It bypasses expensive ($5k/mo) Enterprise APIs.
-
-- **Tier 3: Deep Links (Mobile Fallback)**
-    - **Used for**: Mobile actions where extensions don't exist.
-
-### 4. Cost Analysis (Infrastructure)
-| Service | Role | Est. Cost (MVP) |
-| :--- | :--- | :--- |
-| **Vercel / Cloudflare** | Hosting | $0 - $20/mo |
-| **Supabase** | DB & Auth | $0 - $25/mo |
-| **Google Gemini 2.0** | Strategy & Content | $0 (Free tier) |
-| **OpenAI GPT-4o** | Optional Strategy | PAYG (BYOK) |
-| **Loops / Resend** | Email Lists | $0 - $20/mo |
-| **Total** | | **~$50/mo** |
-
-## Risk, Compliance & Automation (2026 Reality)
-
-To prevent bans and ensure maximum reach, Marketing OS follows a **"Human-in-the-Loop" (Copilot)** model:
-
-### 1. The Ban Risk
-Social platforms (X, Instagram) penalize "Bot-like" behavior:
-- **Autopilot (High Risk)**: Auto-posting via API often results in shadowbans or lower algorithmic reach.
-- **Copilot (Safe)**: AI prepares the content, identifies the target thread, and provides a **"Post Link"**. The user clicks to approve and post. This retains the "Human" signature.
-
-### 2. API & Data Sourcing
-- **Discord**: High API flexibility for management.
-- **X (Twitter) / Socials**: Use Official APIs for data fetching (where budget allows) or browser-based "Assisted Interaction" (User-driven).
-- **Monitoring**: AI analyzes public feeds to find "Reply Bait" or "Viral Trends".
+### LLMs only reason at Step level.
+Examples: "Generate Twitter thread", "Create blog outline", "Draft email".
 
 ---
 
-## Robustness & Scalability Layer
+## 1. Strategy Engine
+**Role**: Transforms user input into a structured Blueprint.
 
-To ensure **LaunchGrid** is enterprise-ready and "rock solid," the following technical guardrails are implemented:
+*   **Input**: Product URL, Target audience, Budget, Goals.
+*   **Output**: A Blueprint JSON object (Pillars, Workflows, Content Themes, Budget).
+*   **Notes**: Pure AI + JSON generation. No side effects. Can be regenerated anytime.
 
-### 1. The Background Worker System (Resilience)
-The strategy engine does not run on the main web thread.
-- **Workflow Queue**: All `Steps` (AI generation, Scrapes) are pushed to a **Redis/BullMQ queue**.
-- **Retry Logic**: If an AI provider (Gemini) or a Social API is down, the system uses **Exponential Backoff** to retry without user intervention.
-- **Isolation**: Each LEGO step runs in a "Sandbox" (isomorphic function). A failure in one pillar (e.g., Twitter scan) cannot crash another (e.g., Discord management).
+## 2. Orchestration Engine (The Brain)
+**Role**: Turns Blueprint into actionable roadmap.
 
-### 2. Encrypted Secret Management (Security)
-- **Vaulting**: All OAuth tokens and API keys are encrypted at rest using **AES-256-GCM** with a master key stored in an Environment Secret Manager (e.g., Vercel Secrets/AWS KMS).
-- **Scope Limitation**: The tool only requests the minimum required permissions (e.g., `post` and `read` scope, never full account access).
+*   **Responsibilities**: Dependency management, Timeline scheduling, Queueing background jobs.
+*   **Important**: A Step never runs directly. It is queued.
 
-### 3. The Audit & Decision Log (Traceability)
-Every AI action is logged with its "Reasoning Chain":
-- **Input Context**: What data was used?
-- **AI Rationale**: Why did the LLM choose this specific hook?
-- **User Approval**: Timestamp and ID of the human who approved the Copilot post.
+## 3. Content Engine (AI Factory)
+**Role**: Generate all content assets.
 
-### 4. Rate-Limit Orchestrator (Polite Automation)
-A central service that tracks API usage across all active pillars. It pauses or "sleeps" workflows if the tool approaches the rate limits of X, LinkedIn, or Instagram to protect the user's reputation and account status.
+*   **AI Provider Abstraction**: `AIProvider.generate(type, context) -> asset`
+*   **Output**: Structured ContentAsset (stored before execution).
+
+## 4. Execution Engine (The Hands)
+**Role**: Interface with external platforms safely.
+
+### Execution Modes
+
+**Mode 1 — Direct API (Preferred)**
+*   **Used for**: Discord, Email (Resend), Slack, CMS, Ads platforms.
+*   **Mechanism**: Server-to-Server OAuth.
+
+**Mode 2 — Human Approval Flow (Deep Links)**
+*   **Used for**: Mobile actions, or strict compliance.
+*   **Mechanism**: User receives "Ready to Post" -> Clicks Deep Link -> Posts manually.
+*   **Benefit**: 100% compliance, Human fingerprint.
+
+**Mode 3 — Browser Bridge Extension (Distributed)**
+*   **Used for**: Power Users on X (Twitter), LinkedIn, Reddit.
+*   **Mechanism**: A local browser extension polls the Orchestrator for tasks (e.g., "Scan Feed", "Draft Reply") and executes them in the user's active session.
+*   **Benefit**: Bypasses costly Enterprise APIs while maintaining a real user fingerprint (Simulates human interaction).
+
+## 5. Analytics Engine (Business Metrics)
+**Role**: Measure KPIs (CAC, LTV, Payback, Effectiveness), not just vanity metrics.
+
+---
+
+## Infrastructure (MVP)
+| Service | Role | Cost |
+| :--- | :--- | :--- |
+| **Vercel** | Hosting | Low |
+| **Supabase** | DB/Auth | Low |
+| **Google Gemini** | AI (Strategy) | Free Tier |
+| **Browser Ext** | Scraping/Posting | Free |
+
+## What LaunchGrid Is
+It is a **Marketing Execution OS** that blends API automation with human-assisted actions.
