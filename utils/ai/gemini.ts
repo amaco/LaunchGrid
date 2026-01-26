@@ -1,18 +1,18 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { AIStrategyProvider, ProjectContext, Blueprint } from "./interface";
+import { AIStrategyProvider, ProjectContext, Blueprint, TaskContext, ContentDraft } from "./interface";
 
 export class GeminiProvider implements AIStrategyProvider {
-    async generateBlueprint(context: ProjectContext, apiKey?: string): Promise<Blueprint> {
-        const key = apiKey || process.env.GEMINI_API_KEY;
-        if (!key) {
-            throw new Error("Gemini API Key missing. Please set it in Settings.");
-        }
+  async generateBlueprint(context: ProjectContext, apiKey?: string): Promise<Blueprint> {
+    const key = apiKey || process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error("Gemini API Key missing. Please set it in Settings.");
+    }
 
-        const genAI = new GoogleGenerativeAI(key);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-        const prompt = `
+    const prompt = `
       You are an expert Chief Marketing Officer (CMO) for SaaS products.
       I need you to generate a "LaunchGrid Marketing Blueprint" for the following product:
       
@@ -47,15 +47,58 @@ export class GeminiProvider implements AIStrategyProvider {
       5. Return ONLY the JSON object. No markdown, no conversation.
     `;
 
-        try {
-            const result = await model.generateContent(prompt);
-            const response = await result.response;
-            const text = response.text();
-            const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-            return JSON.parse(cleanJson);
-        } catch (error) {
-            console.error("Gemini Generation Error:", error);
-            throw new Error("Gemini Generation Failed");
-        }
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (error) {
+      console.error("Gemini Generation Error:", error);
+      throw new Error("Gemini Generation Failed");
     }
+  }
+
+  async generateContent(task: TaskContext, apiKey?: string): Promise<ContentDraft> {
+    const key = apiKey || process.env.GEMINI_API_KEY;
+    if (!key) throw new Error("Gemini API Key missing.");
+
+    const genAI = new GoogleGenerativeAI(key);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+    const prompt = `
+        You are a specialised Content Creator for the "${task.pillarName}" channel.
+        Project: ${task.project.name}
+        Context: ${task.project.description}
+        Audience: ${task.project.audience}
+
+        **Your Task:**
+        Execute the content strategy: "${task.workflowName}".
+        Strategy Description: "${task.workflowDescription}".
+
+        Write a high-quality, engagement-focused piece of content. 
+        If it's for Twitter, keep it concise or make it a thread. 
+        If it's for SEO, provide an outline.
+        If it's for Discord, be conversational.
+
+        Return ONLY a JSON object:
+        {
+            "title": "Internal Title / Subject Line",
+            "content": "The actual post body (markdown supported)",
+            "hashtags": ["#tag1", "#tag2"],
+            "suggestedImagePrompt": "Description of an image that would go well with this post"
+        }
+        `;
+
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    } catch (error) {
+      console.error("Gemini Content Error:", error);
+      throw new Error("Failed to generate content.");
+    }
+  }
 }

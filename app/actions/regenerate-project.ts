@@ -4,6 +4,7 @@ import { createClient } from '@/utils/supabase/server'
 import { AIFactory, AIProviderID } from '@/utils/ai/factory'
 import { decrypt } from '@/utils/encryption'
 import { revalidatePath } from 'next/cache'
+import { createDefaultWorkflowSteps } from '@/utils/workflow-utils'
 
 export async function regenerateStrategyAction(projectId: string) {
     const supabase = await createClient()
@@ -86,9 +87,13 @@ export async function regenerateStrategyAction(projectId: string) {
 
     // 6. Save Workflows
     for (const wf of blueprint.workflows) {
+        // Find the pillar definition to get its type
+        const pillarDef = blueprint.active_pillars.find(p => p.id === wf.pillar_ref)
+        const pillarType = pillarDef ? pillarDef.type : 'custom'
+
         const dbPillarId = pillarMap.get(wf.pillar_ref)
         if (dbPillarId) {
-            await supabase
+            const { data: wfEntry } = await supabase
                 .from('workflows')
                 .insert({
                     project_id: project.id,
@@ -97,6 +102,12 @@ export async function regenerateStrategyAction(projectId: string) {
                     description: wf.description,
                     status: 'active'
                 })
+                .select()
+                .single()
+
+            if (wfEntry) {
+                await createDefaultWorkflowSteps(supabase, wfEntry.id, pillarType, { name: wf.name, goal: wf.goal })
+            }
         }
     }
 

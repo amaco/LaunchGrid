@@ -2,9 +2,10 @@
 import { createClient } from '@/utils/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, Play, Pause, MoreVertical, LayoutGrid } from 'lucide-react'
+import { ArrowLeft, Play, Pause, MoreVertical, LayoutGrid, CheckCircle } from 'lucide-react'
 import EditContextButton from '@/components/dashboard/edit-context-button'
 import RegenerateButton from '@/components/dashboard/regenerate-button'
+import WorkflowCardActions from '@/components/dashboard/workflow-card-actions'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -19,7 +20,13 @@ export default async function ProjectPage({ params }: Props) {
     const [projectRes, pillarsRes, workflowsRes] = await Promise.all([
         supabase.from('projects').select('*').eq('id', id).single(),
         supabase.from('pillars').select('*').eq('project_id', id),
-        supabase.from('workflows').select('*').eq('project_id', id)
+        supabase.from('workflows').select(`
+            *,
+            steps (
+                *,
+                tasks (*)
+            )
+        `).eq('project_id', id).order('created_at', { ascending: true })
     ])
 
     if (projectRes.error || !projectRes.data) return notFound()
@@ -93,26 +100,50 @@ export default async function ProjectPage({ params }: Props) {
                                 </div>
                             </div>
 
-                            {/* Steps Preview (Static for now) */}
-                            <div className="pl-4 ml-4 border-l border-white/10 space-y-3">
-                                <div className="flex items-center gap-3 text-sm text-foreground/70">
-                                    <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-accent text-xs font-bold">1</div>
-                                    <span>Generate Draft Content (AI)</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-sm text-foreground/70">
-                                    <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-foreground/30 text-xs font-bold">2</div>
-                                    <span>Human Review & Approve</span>
-                                </div>
-                                <div className="flex items-center gap-3 text-sm text-foreground/70">
-                                    <div className="w-6 h-6 rounded-full bg-white/5 flex items-center justify-center text-foreground/30 text-xs font-bold">3</div>
-                                    <span>Schedule / Post API</span>
-                                </div>
+                            {/* Steps Dynamic */}
+                            <div className="pl-4 ml-4 border-l border-white/10 space-y-4">
+                                {wf.steps?.sort((a: any, b: any) => a.position - b.position).map((step: any) => {
+                                    const latestTask = step.tasks?.[0] // Assuming recent one is first or only one
+                                    const isDone = latestTask?.status === 'review_needed' || latestTask?.status === 'completed'
+
+                                    return (
+                                        <div key={step.id} className="flex items-start gap-3 text-sm text-foreground/70">
+                                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isDone ? 'bg-green-500/20 text-green-500' : 'bg-white/5 text-foreground/30'}`}>
+                                                {isDone ? <CheckCircle className="w-3 h-3" /> : step.position}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex justify-between items-start">
+                                                    <span className={isDone ? 'text-white' : ''}>
+                                                        {step.type === 'GENERATE_DRAFT' ? 'Generate Content (AI)' :
+                                                            step.type === 'POST_API' ? 'Publish to Platform' :
+                                                                step.type === 'SCAN_FEED' ? 'Scan Feed for Keywords' :
+                                                                    step.type === 'SELECT_TARGETS' ? 'Select High-Value Targets' :
+                                                                        step.type === 'GENERATE_REPLIES' ? 'Draft Replies (AI)' :
+                                                                            step.type === 'POST_REPLY' ? 'Post Reply' :
+                                                                                step.type.replace(/_/g, ' ')}
+                                                    </span>
+                                                    {isDone && (
+                                                        <span className="text-[10px] bg-green-500/10 text-green-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">
+                                                            Ready
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Draft Preview if ready */}
+                                                {isDone && latestTask?.output_data?.title && (
+                                                    <div className="mt-2 bg-white/5 p-3 rounded border border-white/5 text-xs">
+                                                        <div className="font-bold text-white mb-1">Subject: {latestTask.output_data.title}</div>
+                                                        <div className="text-foreground/50 line-clamp-2">{latestTask.output_data.content}</div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )
+                                })}
                             </div>
 
-                            <div className="mt-6 pt-4 border-t border-white/5 flex justify-end">
-                                <button className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-accent hover:text-white transition-colors">
-                                    <Play className="w-3 h-3" /> Run Workflow
-                                </button>
+                            <div className="mt-6 pt-4 border-t border-white/5 flex justify-between items-center">
+                                <WorkflowCardActions workflow={wf} />
                             </div>
                         </div>
                     ))}

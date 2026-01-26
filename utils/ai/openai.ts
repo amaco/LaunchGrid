@@ -1,19 +1,19 @@
 
 import OpenAI from "openai";
-import { AIStrategyProvider, ProjectContext, Blueprint } from "./interface";
+import { AIStrategyProvider, ProjectContext, Blueprint, TaskContext, ContentDraft } from "./interface";
 
 export class OpenAIProvider implements AIStrategyProvider {
-    async generateBlueprint(context: ProjectContext, apiKey?: string): Promise<Blueprint> {
+  async generateBlueprint(context: ProjectContext, apiKey?: string): Promise<Blueprint> {
 
-        // Fallback to env var if generic key logic used, but strongly prefer user key
-        const key = apiKey || process.env.OPENAI_API_KEY;
-        if (!key) {
-            throw new Error("OpenAI API Key missing. Please set it in Settings.");
-        }
+    // Fallback to env var if generic key logic used, but strongly prefer user key
+    const key = apiKey || process.env.OPENAI_API_KEY;
+    if (!key) {
+      throw new Error("OpenAI API Key missing. Please set it in Settings.");
+    }
 
-        const openai = new OpenAI({ apiKey: key });
+    const openai = new OpenAI({ apiKey: key });
 
-        const prompt = `
+    const prompt = `
       You are an expert Chief Marketing Officer (CMO) for SaaS products.
       I need you to generate a "LaunchGrid Marketing Blueprint" for the following product:
       
@@ -48,20 +48,69 @@ export class OpenAIProvider implements AIStrategyProvider {
       5. Return ONLY the JSON object. No markdown, no conversation.
     `;
 
-        try {
-            const completion = await openai.chat.completions.create({
-                messages: [{ role: "system", content: "You are a marketing strategy generator." }, { role: "user", content: prompt }],
-                model: "gpt-4o", // Default to optimized model
-                response_format: { type: "json_object" },
-            });
+    try {
+      const completion = await openai.chat.completions.create({
+        messages: [{ role: "system", content: "You are a marketing strategy generator." }, { role: "user", content: prompt }],
+        model: "gpt-4o", // Default to optimized model
+        response_format: { type: "json_object" },
+      });
 
-            const content = completion.choices[0].message.content;
-            if (!content) throw new Error("No content returned");
+      const content = completion.choices[0].message.content;
+      if (!content) throw new Error("No content returned");
 
-            return JSON.parse(content);
-        } catch (error) {
-            console.error("OpenAI Generation Error:", error);
-            throw new Error("Failed to generate blueprint with OpenAI.");
-        }
+      return JSON.parse(content);
+    } catch (error) {
+      console.error("OpenAI Generation Error:", error);
+      throw new Error("Failed to generate blueprint with OpenAI.");
     }
+  }
+
+  async generateContent(task: TaskContext, apiKey?: string): Promise<ContentDraft> {
+    const key = apiKey || process.env.OPENAI_API_KEY;
+    if (!key) throw new Error("OpenAI API Key missing.");
+
+    const openai = new OpenAI({ apiKey: key });
+
+    const prompt = `
+        You are a specialised Content Creator for the "${task.pillarName}" channel.
+        Project: ${task.project.name}
+        Context: ${task.project.description}
+        Audience: ${task.project.audience}
+
+        **Your Task:**
+        Execute the content strategy: "${task.workflowName}".
+        Strategy Description: "${task.workflowDescription}".
+
+        Write a high-quality, engagement-focused piece of content. 
+        If it's for Twitter, keep it concise or make it a thread. 
+        If it's for SEO, provide an outline.
+        If it's for Discord, be conversational.
+
+        Return ONLY a JSON object:
+        {
+            "title": "Internal Title / Subject Line",
+            "content": "The actual post body (markdown supported)",
+            "hashtags": ["#tag1", "#tag2"],
+            "suggestedImagePrompt": "Description of an image that would go well with this post"
+        }
+        `;
+
+    try {
+      // Calculate complexity based on budget? Higher budget = GPT-4o, Lower = GPT-3.5? 
+      // For now default to 4o for quality.
+      const completion = await openai.chat.completions.create({
+        messages: [{ role: "system", content: "You are a specialized content creator." }, { role: "user", content: prompt }],
+        model: "gpt-4o",
+        response_format: { type: "json_object" },
+      });
+
+      const content = completion.choices[0].message.content;
+      if (!content) throw new Error("No content returned");
+
+      return JSON.parse(content);
+    } catch (error) {
+      console.error("OpenAI Content Error:", error);
+      throw new Error("Failed to generate content.");
+    }
+  }
 }

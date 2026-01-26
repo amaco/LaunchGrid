@@ -1,6 +1,6 @@
-
 export interface AIStrategyProvider {
     generateBlueprint(context: ProjectContext, apiKey?: string): Promise<Blueprint>;
+    generateContent(task: TaskContext, apiKey?: string): Promise<ContentDraft>;
 }
 
 export interface ProjectContext {
@@ -21,4 +21,19 @@ export interface Blueprint {
         frequency: string;
         description: string;
     }>;
+}
+
+export interface TaskContext {
+    project: ProjectContext;
+    pillarName: string;
+    workflowName: string;
+    workflowDescription: string;
+    stepConfig?: any;
+}
+
+export interface ContentDraft {
+    title?: string;
+    content: string;
+    hashtags: string[];
+    suggestedImagePrompt?: string;
 }
