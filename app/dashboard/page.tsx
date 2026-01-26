@@ -1,6 +1,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import Link from 'next/link'
+import DeleteProjectButton from '@/components/dashboard/delete-project-button'
 
 export default async function DashboardPage() {
     const supabase = await createClient()
@@ -31,6 +32,7 @@ export default async function DashboardPage() {
                             <div className="absolute top-4 right-4 text-xs font-mono text-accent/70 bg-accent/10 px-2 py-1 rounded">
                                 v{project.context?.version || '1.0'}
                             </div>
+                            <DeleteProjectButton projectId={project.id} />
                             <h3 className="text-xl font-bold mb-2 text-white group-hover:text-accent transition-colors">{project.name}</h3>
                             <p className="text-sm text-foreground/50 line-clamp-2 h-10 mb-4">
                                 {project.context?.target_audience || 'No description provided.'}

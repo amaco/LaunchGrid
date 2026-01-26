@@ -49,7 +49,9 @@ export async function createProjectAction(formData: FormData) {
         blueprint = await provider.generateBlueprint(rawData, userApiKey);
     } catch (e) {
         console.error("AI Error", e)
-        throw new Error(`AI Strategy Generation Failed using ${selectedProvider}. Check your API Key in Settings.`);
+        // ROLLBACK: Delete the empty project we just created
+        await supabase.from('projects').delete().eq('id', project.id)
+        throw new Error(`AI Strategy Generation Failed using ${selectedProvider}. Project creation rolled back. Check your API Key in Settings.`);
     }
 
     // 4. Save Pillars

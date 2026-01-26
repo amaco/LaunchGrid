@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ArrowLeft, Play, Pause, MoreVertical, LayoutGrid } from 'lucide-react'
+import EditContextButton from '@/components/dashboard/edit-context-button'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -39,9 +40,7 @@ export default async function ProjectPage({ params }: Props) {
                         <p className="text-foreground/50 max-w-2xl">{project.context?.description}</p>
                     </div>
                     <div className="flex gap-2">
-                        <button className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                            Edit Context
-                        </button>
+                        <EditContextButton project={project} />
                         <button className="bg-accent/10 hover:bg-accent/20 text-accent px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                             Re-Generate Strategy
                         </button>
