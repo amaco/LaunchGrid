@@ -18,7 +18,7 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
   // Use admin client to bypass RLS for extension
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SECRET_KEY!,
     {
       auth: {
         persistSession: false,
@@ -80,7 +80,7 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   // Use admin client to bypass RLS
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SECRET_KEY!,
     {
       auth: {
         persistSession: false,

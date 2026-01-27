@@ -23,11 +23,11 @@ async function handleGet(request: NextRequest, context: APIContext, params: { id
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: () => {},
+        setAll: () => { },
       },
     }
   );
@@ -55,11 +55,11 @@ async function handleUpdate(request: NextRequest, context: APIContext, params: {
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: () => {},
+        setAll: () => { },
       },
     }
   );
@@ -91,11 +91,11 @@ async function handleDelete(request: NextRequest, context: APIContext, params: {
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll: () => request.cookies.getAll(),
-        setAll: () => {},
+        setAll: () => { },
       },
     }
   );

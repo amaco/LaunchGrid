@@ -125,13 +125,13 @@ async function authenticateRequest(request: NextRequest): Promise<{
   // Session-based auth via Supabase
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       cookies: {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll() {}, // Read-only for API routes
+        setAll() { }, // Read-only for API routes
       },
     }
   );
