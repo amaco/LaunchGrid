@@ -10,6 +10,9 @@ export async function executeWorkflowAction(workflowId: string) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Unauthorized')
 
+    // DEBUG: Remove this after verifying
+    // throw new Error("CONNECTION TEST: API IS WORKING")
+
     // 1. Fetch Workflow & Related Data
     const { data: workflow } = await supabase
         .from('workflows')
