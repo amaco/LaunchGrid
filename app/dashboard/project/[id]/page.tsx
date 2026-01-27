@@ -105,7 +105,11 @@ export default async function ProjectPage({ params }: Props) {
                             {/* Steps Dynamic */}
                             <div className="pl-4 ml-4 border-l border-white/10 space-y-4">
                                 {wf.steps?.sort((a: any, b: any) => a.position - b.position).map((step: any) => {
-                                    const latestTask = step.tasks?.[0] // Assuming recent one is first or only one
+                                    // Robustly find the latest task
+                                    const sortedTasks = step.tasks?.sort((a: any, b: any) =>
+                                        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                                    ) || []
+                                    const latestTask = sortedTasks[0]
                                     const isDone = latestTask?.status === 'review_needed' || latestTask?.status === 'completed'
 
                                     return (

@@ -209,19 +209,23 @@ export async function executeWorkflowAction(workflowId: string) {
     }
 
     if (existingTask) {
-        await supabase.from('tasks').update({
+        const { error } = await supabase.from('tasks').update({
             status: newStatus,
             output_data: resultData,
             completed_at: newStatus === 'extension_queued' ? null : new Date().toISOString()
         }).eq('id', existingTask.id)
+
+        if (error) throw new Error(`Database Update Failed: ${error.message}`)
     } else {
-        await supabase.from('tasks').insert({
+        const { error } = await supabase.from('tasks').insert({
             step_id: targetStep.id,
             project_id: project.id,
             status: newStatus,
             output_data: resultData,
             completed_at: newStatus === 'extension_queued' ? null : new Date().toISOString()
         })
+
+        if (error) throw new Error(`Database Insert Failed: ${error.message}`)
     }
 
     revalidatePath(`/dashboard/project/${project.id}`)
