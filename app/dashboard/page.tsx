@@ -55,7 +55,7 @@ export default async function DashboardPage() {
                         <div className="text-4xl mb-4">🏗️</div>
                         <h3 className="text-xl font-medium text-white mb-2">No projects found</h3>
                         <p className="text-foreground/50 mb-6 max-w-md mx-auto">
-                            You haven't created any marketing blueprints yet. Start by defining your product.
+                            You have not created any marketing blueprints yet. Start by defining your product.
                         </p>
                         <Link href="/dashboard/new" className="text-accent hover:underline">
                             Create your first blueprint →

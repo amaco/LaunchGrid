@@ -1,236 +1,420 @@
 'use server'
 
+/**
+ * Execute Workflow Server Action
+ * 
+ * Following the constitution:
+ * - Uses service layer with proper boundaries
+ * - Event-driven execution
+ * - Human-in-the-loop for social posting
+ * - Workflows are declarative, not hardcoded
+ */
+
 import { createClient } from '@/utils/supabase/server'
-import { AIFactory, AIProviderID } from '@/utils/ai/factory'
-import { decrypt } from '@/utils/encryption'
+import { nanoid } from 'nanoid'
 import { revalidatePath } from 'next/cache'
+import { WorkflowService, TaskService, AIService, createServiceContext } from '@/lib/services'
+import { emitWorkflowEvent, emitTaskEvent } from '@/lib/events/event-bus'
+import { logUserAction } from '@/lib/events/audit-logger'
+import { WorkflowError, StepExecutionError } from '@/lib/core/errors'
+import type { AIProviderID } from '@/lib/core/types'
 
 export async function executeWorkflowAction(workflowId: string) {
     const supabase = await createClient()
+    const requestId = nanoid()
+
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) throw new Error('Unauthorized')
 
-    // DEBUG: Remove this after verifying
-    // throw new Error("CONNECTION TEST: API IS WORKING")
+    // Create service context
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
 
-    // 1. Fetch Workflow & Related Data
-    const { data: workflow } = await supabase
-        .from('workflows')
-        .select(`
-            *,
-            pillar:pillars(*),
-            project:projects(*),
-            steps(*)
-        `)
-        .eq('id', workflowId)
-        .single()
+    const workflowService = new WorkflowService(serviceContext)
+    const taskService = new TaskService(serviceContext)
+    const aiService = new AIService(serviceContext)
 
-    if (!workflow) throw new Error('Workflow not found')
+    // 1. Get workflow execution state
+    const executionState = await workflowService.getExecutionState(workflowId)
+    const { workflow, nextStep, steps } = executionState
 
-    // 2. Find the NEXT executable step
-    // We want the first step that does NOT have a 'completed' or 'review_needed' task.
-    // If a step has NO task, it is by definition pending.
+    // Log execution attempt
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'EXECUTE_WORKFLOW',
+        'workflow',
+        workflowId,
+        {
+            progress: executionState.progress,
+            hasNextStep: !!nextStep,
+        }
+    )
 
-    // Fetch all tasks for this workflow
-    const { data: existingTasks } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('project_id', workflow.project.id)
-        .in('step_id', workflow.steps.map((s: any) => s.id))
-
-    const stepsSorted = workflow.steps.sort((a: any, b: any) => a.position - b.position)
-
-    // Debugging: Log what we see
-    console.log("Steps found:", stepsSorted.length)
-    console.log("Tasks found:", existingTasks?.length)
-
-    let targetStep = stepsSorted.find((s: any) => {
-        const task = existingTasks?.find((t: any) => t.step_id === s.id)
-        // If no task exists, it's pending. If task exists but not done, it's pending.
-        const isDone = task && (task.status === 'completed' || task.status === 'review_needed')
-        return !isDone
-    })
-
-    if (!targetStep) {
-        // Reset logic? If the user added a new step but "all previous" were done, this should have found the new one.
-        // If we are here, TRULY everything is done.
-        // Let's force a reset if they click run again? Or just alert.
-        console.log("Workflow seems complete")
+    // 2. Check if workflow is complete
+    if (!nextStep) {
+        await emitWorkflowEvent(
+            'WORKFLOW_COMPLETED',
+            workflowId,
+            { progress: 100 },
+            {
+                organizationId: user.id,
+                userId: user.id,
+                correlationId: requestId,
+                source: 'ui',
+            }
+        )
         return { message: "Workflow is complete!" }
     }
 
-    console.log("Targeting Step:", targetStep.type, targetStep.id)
+    // 3. Check if step can be executed
+    if (!nextStep.canExecute) {
+        throw new WorkflowError(
+            `Step blocked by dependencies: ${nextStep.blockedBy.join(', ')}`,
+            workflowId,
+            { blockedBy: nextStep.blockedBy }
+        )
+    }
 
-    // 3. Prepare AI Context & Dependencies
-    const project = workflow.project
+    const targetStep = nextStep.step
+    console.log(`[Workflow] Executing step: ${targetStep.type} (${targetStep.id})`)
+
+    // 4. Get or create task for this step
+    let task = await taskService.getByStepId(targetStep.id)
+    if (!task) {
+        task = await taskService.create({
+            stepId: targetStep.id,
+            projectId: workflow.projectId,
+        })
+    }
+
+    // Start task
+    task = await taskService.start(task.id)
+
+    // 5. Fetch project and pillar context
+    const { data: project } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', workflow.projectId)
+        .single()
+
+    if (!project) throw new WorkflowError('Project not found', workflowId)
+
+    const { data: pillar } = await supabase
+        .from('pillars')
+        .select('*')
+        .eq('id', workflow.pillarId)
+        .single()
+
     const context = project.context || {}
     const providerId = (context.aiProvider as AIProviderID) || 'gemini'
 
-    // CHAINING LOGIC: Look for output from the PREVIOUS step to pass as input
-    let previousStepOutput = null;
-    const prevStepIndex = stepsSorted.findIndex((s: any) => s.id === targetStep.id) - 1;
-    if (prevStepIndex >= 0) {
-        const prevStep = stepsSorted[prevStepIndex];
-        const prevTask = existingTasks?.find((t: any) => t.step_id === prevStep.id);
-        if (prevTask && prevTask.output_data) {
-            previousStepOutput = prevTask.output_data;
+    // 6. Get previous step output for chaining
+    let previousStepOutput: Record<string, unknown> | undefined
+    if (nextStep.completedDependencies.length > 0) {
+        const prevTask = await taskService.getByStepId(nextStep.completedDependencies[0])
+        previousStepOutput = prevTask?.outputData
+    } else {
+        // Find previous positional step
+        const prevStepIdx = steps.findIndex(s => s.id === targetStep.id) - 1
+        if (prevStepIdx >= 0) {
+            const prevTask = await taskService.getByStepId(steps[prevStepIdx].id)
+            previousStepOutput = prevTask?.outputData
         }
     }
 
-    // 4. Get API Key
-    const { data: secrets } = await supabase
-        .from('user_secrets')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-    const userApiKey = secrets && secrets[`${providerId}_key`]
-        ? decrypt(secrets[`${providerId}_key`])
-        : undefined;
-
-    // 5. Execute Step Handler
-    const provider = AIFactory.getProvider(providerId);
-    let resultData: any;
+    // 7. Execute step based on type
+    let resultData: Record<string, unknown>
 
     try {
         switch (targetStep.type) {
             case 'GENERATE_DRAFT':
-            case 'GENERATE_OUTLINE':
-                resultData = await provider.generateContent({
-                    project: {
-                        name: project.name,
-                        description: context.description,
-                        audience: context.audience || "General Audience",
-                        painPoints: context.painPoints || "None specified",
-                        budget: context.budget || 0
+            case 'GENERATE_OUTLINE': {
+                const content = await aiService.generateContent(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || 'General Audience',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: targetStep.config,
+                        previousOutput: previousStepOutput,
                     },
-                    pillarName: workflow.pillar.name,
-                    workflowName: workflow.name,
-                    workflowDescription: workflow.description || workflow.name,
-                    stepConfig: targetStep.config
-                }, userApiKey);
-                break;
+                    providerId
+                )
+                resultData = content as unknown as Record<string, unknown>
+                break
+            }
 
-            case 'SCAN_FEED':
-                // Check if we are in "Simulation Mode" (for free testing)
-                // In a real app, strict checks (env var or user setting) would go here.
-                // For MVP, if we have NO extension connected, we fallback to mock? 
-                // Actually, let's assume if they click Run, they want to try the real deal unless flagged.
+            case 'SCAN_FEED': {
+                // Queue for browser extension (human-in-the-loop)
+                await taskService.queueForExtension(task.id)
 
-                // For now, let's force Real Mode if "is_mock" isn't explicitly requested (or we can toggle it).
-                // But previously I returned mock data. Let's start the queueing flow.
-
-                // QUEUE FOR EXTENSION
-                // We do NOT return resultData yet. We set a flag to save as 'extension_queued'.
-
-                const useRealExtension = true; // Hardcoded for now to enable the feature
-
-                if (useRealExtension) {
-                    // We return NULL results but set a special flag
-                    // The saving logic below needs to handle 'extension_queued' status.
-                    resultData = { pending_extension: true };
-                } else {
-                    // Simulator
-                    resultData = {
-                        is_mock: true,
-                        found_items: [
-                            { id: 't1', text: "Just lost $5k trading crypto today. Risk management sucks.", author: "@sadtrader" },
-                            { id: 't2', text: "What is the best trading journal app in 2026?", author: "@curiouswhale" }
-                        ],
-                        summary: "Found 2 high-intent engagement opportunities. (SIMULATION)"
+                await emitTaskEvent(
+                    'EXTENSION_TASK_QUEUED',
+                    task.id,
+                    { stepType: 'SCAN_FEED' },
+                    {
+                        organizationId: user.id,
+                        userId: user.id,
+                        correlationId: requestId,
+                        source: 'ui',
                     }
-                }
-                break;
+                )
 
-            case 'SELECT_TARGETS':
-                // AI Logic: Pick the best ones from previous step
+                revalidatePath(`/dashboard/project/${project.id}`)
+                return { 
+                    pending_extension: true, 
+                    message: 'Task queued for browser extension' 
+                }
+            }
+
+            case 'SELECT_TARGETS': {
+                const foundItems = (previousStepOutput as any)?.found_items || []
                 resultData = {
-                    is_mock: previousStepOutput?.is_mock || false,
-                    selected_items: previousStepOutput?.found_items || [],
-                    rationale: "Selected all high-relevance items."
+                    is_mock: (previousStepOutput as any)?.is_mock || false,
+                    selected_items: foundItems,
+                    rationale: 'Selected all high-relevance items.',
                 }
-                break;
+                break
+            }
 
-            case 'GENERATE_REPLIES':
-                // AI Logic: Write replies for the selected targets
-                const targets = previousStepOutput?.selected_items || []
-                if (targets.length === 0) throw new Error("No targets to reply to.")
+            case 'GENERATE_REPLIES': {
+                const targets = (previousStepOutput as any)?.selected_items || []
+                
+                if (targets.length === 0) {
+                    throw new StepExecutionError(
+                        'No targets to reply to',
+                        targetStep.id,
+                        targetStep.type
+                    )
+                }
 
-                // COST PROTECTION: If data is mock, DO NOT call OpenAI.
-                if (previousStepOutput?.is_mock) {
-                    console.log("Skipping OpenAI call for Mock Data (Saving Tokens)")
+                // Check if mock data - skip AI call
+                if ((previousStepOutput as any)?.is_mock) {
+                    console.log('[Workflow] Skipping AI call for mock data')
                     resultData = {
                         is_mock: true,
                         replies: targets.map((t: any) => ({
                             target_id: t.id,
                             reply: `(Simulated Reply) Hey ${t.author}, have you tried using a journal? It helps!`
                         })),
-                        title: "Drafted 2 Replies (SIMULATED)"
+                        title: `Drafted ${targets.length} Replies (SIMULATED)`
                     }
-                    break;
+                    break
                 }
 
-                // Real Execution
-                // We'll just generate one bulk object for now or array
-                const comments = await Promise.all(targets.map(async (t: any) => {
-                    const draft = await provider.generateContent({
+                // Real AI execution
+                const replies = await aiService.generateReplies(
+                    {
                         project: {
                             name: project.name,
-                            description: context.description,
-                            audience: context.audience,
-                            painPoints: context.painPoints,
-                            budget: context.budget
+                            description: context.description || '',
+                            audience: context.audience || '',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
                         },
-                        pillarName: workflow.pillar.name,
-                        workflowName: "Reply to " + t.author,
-                        workflowDescription: `Write a helpful, subtle reply to this tweet: "${t.text}"`,
-                        stepConfig: targetStep.config
-                    }, userApiKey);
-                    return { target_id: t.id, reply: draft.content }
-                }))
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: targetStep.config,
+                    },
+                    targets,
+                    providerId
+                )
 
-                resultData = { replies: comments, title: "Drafted 2 Replies" }
-                break;
+                resultData = {
+                    replies,
+                    title: `Drafted ${replies.length} Replies`,
+                }
+                break
+            }
+
+            case 'REVIEW_CONTENT':
+            case 'WAIT_APPROVAL': {
+                // Human-in-the-loop: mark for review
+                await taskService.markForReview(task.id, previousStepOutput || {})
+                
+                revalidatePath(`/dashboard/project/${project.id}`)
+                return {
+                    awaiting_approval: true,
+                    message: 'Content ready for review',
+                }
+            }
+
+            case 'POST_API':
+            case 'POST_REPLY':
+            case 'POST_EXTENSION': {
+                // Human-in-the-loop: require approval before posting
+                await taskService.markForReview(task.id, {
+                    ...previousStepOutput,
+                    pending_action: targetStep.type,
+                    message: 'Ready to post - awaiting approval',
+                })
+                
+                revalidatePath(`/dashboard/project/${project.id}`)
+                return {
+                    awaiting_approval: true,
+                    message: 'Ready to post - awaiting approval',
+                }
+            }
 
             default:
-                throw new Error(`Step type ${targetStep.type} not ready yet.`)
+                throw new StepExecutionError(
+                    `Step type ${targetStep.type} not implemented yet`,
+                    targetStep.id,
+                    targetStep.type
+                )
         }
 
+        // 8. Mark task for review (human-in-the-loop principle)
+        await taskService.markForReview(task.id, resultData)
+
+        // 9. Emit step completed event
+        await emitTaskEvent(
+            'TASK_COMPLETED',
+            task.id,
+            {
+                stepType: targetStep.type,
+                hasOutput: !!resultData,
+            },
+            {
+                organizationId: user.id,
+                userId: user.id,
+                correlationId: requestId,
+                source: 'ui',
+            }
+        )
+
+        revalidatePath(`/dashboard/project/${project.id}`)
+        return resultData
+
     } catch (e: any) {
-        console.error("Workflow Execution Failed", e)
+        console.error('[Workflow] Execution failed:', e)
+        
+        // Mark task as failed
+        await taskService.fail(task.id, e.message)
+
+        // Emit failure event
+        await emitTaskEvent(
+            'TASK_FAILED',
+            task.id,
+            {
+                stepType: targetStep.type,
+                error: e.message,
+            },
+            {
+                organizationId: user.id,
+                userId: user.id,
+                correlationId: requestId,
+                source: 'ui',
+            }
+        )
+
         throw new Error(`Execution Failed: ${e.message}`)
     }
+}
 
-    // 6. Save or Update Task Result
-    const existingTask = existingTasks?.find((t: any) => t.step_id === targetStep.id)
+/**
+ * Approve a task (human-in-the-loop)
+ */
+export async function approveTaskAction(taskId: string) {
+    const supabase = await createClient()
+    const requestId = nanoid()
 
-    // Determine status
-    let newStatus = 'review_needed';
-    if (resultData?.pending_extension) {
-        newStatus = 'extension_queued';
-        resultData = { info: "Waiting for Browser Extension..." }
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Unauthorized')
+
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+
+    const taskService = new TaskService(serviceContext)
+    const task = await taskService.approve(taskId)
+
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'APPROVE_TASK',
+        'task',
+        taskId,
+        {}
+    )
+
+    // Get project ID to revalidate
+    const { data: taskData } = await supabase
+        .from('tasks')
+        .select('project_id')
+        .eq('id', taskId)
+        .single()
+
+    if (taskData) {
+        revalidatePath(`/dashboard/project/${taskData.project_id}`)
     }
 
-    if (existingTask) {
-        const { error } = await supabase.from('tasks').update({
-            status: newStatus,
-            output_data: resultData,
-            completed_at: newStatus === 'extension_queued' ? null : new Date().toISOString()
-        }).eq('id', existingTask.id)
+    return { success: true }
+}
 
-        if (error) throw new Error(`Database Update Failed: ${error.message}`)
-    } else {
-        const { error } = await supabase.from('tasks').insert({
-            step_id: targetStep.id,
-            project_id: project.id,
-            status: newStatus,
-            output_data: resultData,
-            completed_at: newStatus === 'extension_queued' ? null : new Date().toISOString()
-        })
+/**
+ * Reject a task (human-in-the-loop)
+ */
+export async function rejectTaskAction(taskId: string, reason: string) {
+    const supabase = await createClient()
+    const requestId = nanoid()
 
-        if (error) throw new Error(`Database Insert Failed: ${error.message}`)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Unauthorized')
+
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+
+    const taskService = new TaskService(serviceContext)
+    await taskService.reject(taskId, reason)
+
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'REJECT_TASK',
+        'task',
+        taskId,
+        { reason }
+    )
+
+    // Get project ID to revalidate
+    const { data: taskData } = await supabase
+        .from('tasks')
+        .select('project_id')
+        .eq('id', taskId)
+        .single()
+
+    if (taskData) {
+        revalidatePath(`/dashboard/project/${taskData.project_id}`)
     }
 
-    revalidatePath(`/dashboard/project/${project.id}`)
-    return resultData;
+    return { success: true }
 }

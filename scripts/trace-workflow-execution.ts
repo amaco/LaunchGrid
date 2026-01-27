@@ -50,7 +50,7 @@ async function executeWorkflowAction(workflowId: string) {
     console.log("Steps found:", stepsSorted.length)
     console.log("Tasks found:", existingTasks?.length)
 
-    let targetStep = stepsSorted.find((s: any) => {
+    const targetStep = stepsSorted.find((s: any) => {
         const task = existingTasks?.find((t: any) => t.step_id === s.id)
         const isDone = task && (task.status === 'completed' || task.status === 'review_needed')
         return !isDone
