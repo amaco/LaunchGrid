@@ -12,13 +12,14 @@ import { BaseService, ServiceContext } from './base-service';
 import { AIProviderError, ConfigurationError } from '../core/errors';
 import { logAIDecision } from '../events/audit-logger';
 import type { AIProviderID, Blueprint, ContentDraft, ProjectContext, AggregateType } from '../core/types';
-import type { 
-  AIStrategyProvider, 
-  Blueprint as RawBlueprint, 
+import type {
+  AIStrategyProvider,
+  Blueprint as RawBlueprint,
   ContentDraft as RawContentDraft,
   ProjectContext as RawProjectContext,
-  TaskContext as RawTaskContext 
+  TaskContext as RawTaskContext
 } from '../../utils/ai/interface';
+import { getSpecializedPrompt, PromptType } from '../../utils/ai/prompts';
 
 // ==========================================
 // AI PROVIDER INTERFACE
@@ -36,6 +37,7 @@ export interface ContentTaskContext {
   workflowDescription: string;
   stepConfig?: Record<string, unknown>;
   previousOutput?: Record<string, unknown>;
+  customPrompt?: string;
 }
 
 // ==========================================
@@ -46,7 +48,7 @@ export interface ContentTaskContext {
  * Adapter to convert raw AI provider to our AIProvider interface
  */
 class AIProviderAdapter implements AIProvider {
-  constructor(private rawProvider: AIStrategyProvider) {}
+  constructor(private rawProvider: AIStrategyProvider) { }
 
   async generateBlueprint(context: ProjectContext, apiKey?: string): Promise<Blueprint> {
     const rawContext: RawProjectContext = {
@@ -91,6 +93,7 @@ class AIProviderAdapter implements AIProvider {
       workflowDescription: task.workflowDescription,
       stepConfig: task.stepConfig,
       previousOutput: task.previousOutput,
+      customPrompt: task.customPrompt,
     };
 
     const rawContent = await this.rawProvider.generateContent(rawTask, apiKey);
@@ -155,7 +158,7 @@ export class AIService extends BaseService {
    */
   private async getUserApiKey(providerId: AIProviderID): Promise<string | undefined> {
     const keyColumn = `${providerId}_key`;
-    
+
     const { data } = await this.db
       .from('user_secrets')
       .select('*')
@@ -168,7 +171,7 @@ export class AIService extends BaseService {
 
     // Access the key using the column name
     const encryptedKey = (data as Record<string, unknown>)[keyColumn] as string | undefined;
-    
+
     if (!encryptedKey) {
       return undefined;
     }
@@ -261,7 +264,16 @@ export class AIService extends BaseService {
         const provider = await this.getProvider(providerId);
         const apiKey = await this.getUserApiKey(providerId);
 
-        const content = await provider.generateContent(taskContext, apiKey);
+        // Check for specialized prompts
+        let customPrompt: string | undefined;
+        if (taskContext.pillarName.toLowerCase().includes('twitter') || taskContext.pillarName.toLowerCase().includes(' x')) {
+          customPrompt = getSpecializedPrompt('TWITTER_THREAD', taskContext);
+        }
+
+        const content = await provider.generateContent({
+          ...taskContext,
+          customPrompt
+        }, apiKey);
 
         const duration = Date.now() - startTime;
 

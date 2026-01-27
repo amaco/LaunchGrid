@@ -6,6 +6,7 @@ import { ArrowLeft, Play, Pause, MoreVertical, LayoutGrid, CheckCircle } from 'l
 import EditContextButton from '@/components/dashboard/edit-context-button'
 import RegenerateButton from '@/components/dashboard/regenerate-button'
 import WorkflowCardActions from '@/components/dashboard/workflow-card-actions'
+import ContentPreview from '@/components/dashboard/content-preview'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -141,11 +142,11 @@ export default async function ProjectPage({ params }: Props) {
                                                 </div>
 
                                                 {/* Draft Preview if ready */}
-                                                {isDone && latestTask?.output_data?.title && (
-                                                    <div className="mt-2 bg-white/5 p-3 rounded border border-white/5 text-xs">
-                                                        <div className="font-bold text-white mb-1">Subject: {latestTask.output_data.title}</div>
-                                                        <div className="text-foreground/50 line-clamp-2">{latestTask.output_data.content}</div>
-                                                    </div>
+                                                {isDone && latestTask?.output_data && (
+                                                    <ContentPreview
+                                                        content={latestTask.output_data.found_items || latestTask.output_data.content || latestTask.output_data.summary}
+                                                        title={latestTask.output_data.title || 'Step Result'}
+                                                    />
                                                 )}
                                             </div>
                                         </div>

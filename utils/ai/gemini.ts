@@ -66,7 +66,7 @@ export class GeminiProvider implements AIStrategyProvider {
     const genAI = new GoogleGenerativeAI(key);
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
 
-    const prompt = `
+    const prompt = task.customPrompt || `
         You are a specialised Content Creator for the "${task.pillarName}" channel.
         Project: ${task.project.name}
         Context: ${task.project.description}

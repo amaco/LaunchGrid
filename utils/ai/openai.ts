@@ -71,7 +71,7 @@ export class OpenAIProvider implements AIStrategyProvider {
 
     const openai = new OpenAI({ apiKey: key });
 
-    const prompt = `
+    const prompt = task.customPrompt || `
         You are a specialised Content Creator for the "${task.pillarName}" channel.
         Project: ${task.project.name}
         Context: ${task.project.description}

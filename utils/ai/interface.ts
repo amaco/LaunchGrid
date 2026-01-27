@@ -24,9 +24,9 @@ export interface ProjectContext {
  * Uses snake_case for JSON compatibility with AI responses
  */
 export interface Blueprint {
-    active_pillars: Array<{ 
-        id: string; 
-        type: string; 
+    active_pillars: Array<{
+        id: string;
+        type: string;
         name: string;
     }>;
     workflows: Array<{
@@ -43,9 +43,9 @@ export interface Blueprint {
  * Normalized Blueprint for internal use (camelCase)
  */
 export interface NormalizedBlueprint {
-    activePillars: Array<{ 
-        id: string; 
-        type: string; 
+    activePillars: Array<{
+        id: string;
+        type: string;
         name: string;
     }>;
     workflows: Array<{
@@ -65,6 +65,8 @@ export interface TaskContext {
     workflowDescription: string;
     stepConfig?: Record<string, unknown>;
     previousOutput?: Record<string, unknown>;
+    systemPrompt?: string;
+    customPrompt?: string;
 }
 
 export interface ContentDraft {
