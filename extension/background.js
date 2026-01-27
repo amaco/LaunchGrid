@@ -40,29 +40,38 @@ async function checkTasks() {
 }
 
 async function executeTask(task) {
-    // Find the active tab for the target platform
-    // For 'SCAN_FEED', we need a Twitter tab
     const patterns = task.platform === 'twitter'
         ? ['*://x.com/*', '*://twitter.com/*']
         : ['*://linkedin.com/*'];
 
     const tabs = await chrome.tabs.query({ url: patterns });
 
+    let activeTab;
     if (tabs.length === 0) {
-        console.log("No active tab found for platform:", task.platform);
-        // Optional: Create one? chrome.tabs.create({ url: ... })
-        return;
-    }
+        console.log("No active tab found. Creating one for:", task.platform);
+        const url = task.platform === 'twitter' ? 'https://x.com/home' : 'https://linkedin.com';
+        activeTab = await chrome.tabs.create({ url, active: false, pinned: true });
 
-    const activeTab = tabs[0];
+        // Wait for tab to load before sending message
+        await new Promise(resolve => {
+            const listener = (tabId, changeInfo) => {
+                if (tabId === activeTab.id && changeInfo.status === 'complete') {
+                    chrome.tabs.onUpdated.removeListener(listener);
+                    resolve();
+                }
+            };
+            chrome.tabs.onUpdated.addListener(listener);
+        });
+    } else {
+        activeTab = tabs[0];
+    }
 
     // Send message to Content Script
     chrome.tabs.sendMessage(activeTab.id, {
-        action: task.type, // e.g., 'SCAN_FEED'
+        action: task.type,
         config: task.config,
         taskId: task.taskId
     }, (response) => {
-        // Handle response from content script (if immediate)
         if (chrome.runtime.lastError) {
             console.error("Msg Error:", chrome.runtime.lastError);
         }

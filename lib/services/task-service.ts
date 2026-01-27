@@ -31,6 +31,7 @@ const TASK_TRANSITIONS: TaskTransition[] = [
   { from: ['in_progress', 'extension_queued', 'awaiting_approval'], to: 'failed', action: 'fail' },
   { from: ['failed', 'cancelled'], to: 'pending', action: 'retry' },
   { from: ['pending', 'in_progress', 'awaiting_approval', 'review_needed'], to: 'cancelled', action: 'cancel' },
+  { from: ['completed', 'failed', 'review_needed', 'awaiting_approval', 'cancelled'], to: 'pending', action: 'reset' },
 ];
 
 // ==========================================
@@ -214,10 +215,10 @@ export class TaskService extends BaseService {
 
       // Emit appropriate event
       const eventType = status === 'completed' ? 'TASK_COMPLETED' :
-                       status === 'failed' ? 'TASK_FAILED' :
-                       status === 'in_progress' ? 'TASK_STARTED' :
-                       status === 'extension_queued' ? 'EXTENSION_TASK_QUEUED' :
-                       'TASK_QUEUED';
+        status === 'failed' ? 'TASK_FAILED' :
+          status === 'in_progress' ? 'TASK_STARTED' :
+            status === 'extension_queued' ? 'EXTENSION_TASK_QUEUED' :
+              'TASK_QUEUED';
 
       await this.emitEvent(eventType, taskId, {
         previousStatus: existing.status,
@@ -264,8 +265,11 @@ export class TaskService extends BaseService {
   /**
    * Queue task for browser extension
    */
-  async queueForExtension(taskId: string): Promise<Task> {
-    return this.updateStatus(taskId, 'extension_queued', { info: 'Waiting for Browser Extension...' });
+  async queueForExtension(taskId: string, outputData?: Record<string, unknown>): Promise<Task> {
+    return this.updateStatus(taskId, 'extension_queued', {
+      info: 'Waiting for Browser Extension...',
+      ...outputData
+    });
   }
 
   /**
@@ -273,7 +277,7 @@ export class TaskService extends BaseService {
    */
   async approve(taskId: string): Promise<Task> {
     const task = await this.getById(taskId);
-    
+
     if (task.status !== 'review_needed' && task.status !== 'awaiting_approval') {
       throw new BusinessRuleError(
         'Task is not awaiting approval',
@@ -289,7 +293,7 @@ export class TaskService extends BaseService {
    */
   async reject(taskId: string, reason: string): Promise<Task> {
     const task = await this.getById(taskId);
-    
+
     if (task.status !== 'review_needed' && task.status !== 'awaiting_approval') {
       throw new BusinessRuleError(
         'Task is not awaiting approval',
@@ -298,6 +302,13 @@ export class TaskService extends BaseService {
     }
 
     return this.updateStatus(taskId, 'cancelled', undefined, reason);
+  }
+
+  /**
+   * Reset a task to pending so it can be rerun
+   */
+  async reset(taskId: string): Promise<Task> {
+    return this.updateStatus(taskId, 'pending', {});
   }
 
   /**
@@ -327,7 +338,7 @@ export class TaskService extends BaseService {
     result: Record<string, unknown>
   ): Promise<Task> {
     const task = await this.getById(taskId);
-    
+
     if (task.status !== 'extension_queued') {
       throw new BusinessRuleError(
         'Task is not queued for extension',

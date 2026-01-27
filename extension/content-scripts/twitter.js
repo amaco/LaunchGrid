@@ -9,10 +9,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-function scanFeed(taskId) {
-    // Basic DOM Scraping for X.com
-    // Note: Classes change often, so we rely on semantic tags like <article> where possible
+function scanFeed(taskId, config = {}) {
+    // 1. Check for login state
+    const isLoggedOut = document.querySelector('[data-testid="loginButton"]') ||
+        document.querySelector('a[href="/login"]') ||
+        !document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]');
 
+    if (isLoggedOut) {
+        console.error("LaunchGrid: User is logged out.");
+        chrome.runtime.sendMessage({
+            type: 'TASK_RESULT',
+            taskId: taskId,
+            data: {
+                error: "AUTH_REQUIRED",
+                summary: "Please log in to X.com to allow scanning."
+            }
+        });
+        return;
+    }
+
+    // 2. Perform Scan
     const tweets = [];
     const articles = document.querySelectorAll('article');
 
@@ -25,7 +41,7 @@ function scanFeed(taskId) {
             if (textNode && userNode) {
                 tweets.push({
                     text: textNode.innerText,
-                    author: userNode.innerText.split('\n')[0], // Extract handle/name
+                    author: userNode.innerText.split('\n')[1] || userNode.innerText.split('\n')[0], // Extract @handle
                     time: timeNode ? timeNode.getAttribute('datetime') : new Date().toISOString()
                 });
             }
@@ -34,15 +50,24 @@ function scanFeed(taskId) {
         }
     });
 
+    // 3. Smart Search Fallback
+    // If feed is dry (< 3 items) and we haven't tried searching yet
+    if (tweets.length < 3 && !window.location.href.includes('/search') && config.keywords) {
+        console.log("Feed is dry. Triggering smart search fallback...");
+        const query = encodeURIComponent(config.keywords);
+        window.location.href = `https://x.com/search?q=${query}&f=live`;
+        return; // Background script will re-trigger the task once page loads
+    }
+
     console.log(`Scanned ${tweets.length} tweets.`);
 
-    // Send data back to Extension Background
+    // 4. Report Results
     chrome.runtime.sendMessage({
         type: 'TASK_RESULT',
         taskId: taskId,
         data: {
-            found_items: tweets.slice(0, 10), // Limit to top 10
-            summary: "Scanned via Browser Extension"
+            found_items: tweets.slice(0, 15),
+            summary: tweets.length > 0 ? `Successfully scanned ${tweets.length} tweets.` : "No relevant tweets found in feed."
         }
     });
 }

@@ -7,6 +7,7 @@ import EditContextButton from '@/components/dashboard/edit-context-button'
 import RegenerateButton from '@/components/dashboard/regenerate-button'
 import WorkflowCardActions from '@/components/dashboard/workflow-card-actions'
 import ContentPreview from '@/components/dashboard/content-preview'
+import RerunStepButton from '@/components/dashboard/rerun-step-button'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -119,8 +120,8 @@ export default async function ProjectPage({ params }: Props) {
                                                 {isDone ? <CheckCircle className="w-3 h-3" /> : step.position}
                                             </div>
                                             <div className="flex-1">
-                                                <div className="flex justify-between items-start">
-                                                    <span className={isDone ? 'text-white' : ''}>
+                                                <div className="flex justify-between items-center">
+                                                    <span className={isDone ? 'text-white font-medium' : ''}>
                                                         {step.type === 'GENERATE_DRAFT' ? 'Generate Content (AI)' :
                                                             step.type === 'POST_API' ? 'Publish to Platform' :
                                                                 step.type === 'SCAN_FEED' ? 'Scan Feed for Keywords' :
@@ -129,24 +130,38 @@ export default async function ProjectPage({ params }: Props) {
                                                                             step.type === 'POST_REPLY' ? 'Post Reply' :
                                                                                 step.type.replace(/_/g, ' ')}
                                                     </span>
-                                                    {isDone && (
-                                                        <span className="text-[10px] bg-green-500/10 text-green-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">
-                                                            Ready
-                                                        </span>
-                                                    )}
-                                                    {latestTask?.status === 'extension_queued' && (
-                                                        <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold animate-pulse">
-                                                            Waiting for Browser...
-                                                        </span>
-                                                    )}
+
+                                                    <div className="flex items-center gap-2">
+                                                        {isDone && (
+                                                            <span className="text-[10px] bg-green-500/10 text-green-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">
+                                                                Ready
+                                                            </span>
+                                                        )}
+                                                        {latestTask?.status === 'extension_queued' && (
+                                                            <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold animate-pulse">
+                                                                Waiting for Browser...
+                                                            </span>
+                                                        )}
+                                                        {isDone && latestTask && (
+                                                            <RerunStepButton taskId={latestTask.id} workflowId={wf.id} />
+                                                        )}
+                                                    </div>
                                                 </div>
 
-                                                {/* Draft Preview if ready */}
+                                                {/* Draft Preview if ready - Collapsible */}
                                                 {isDone && latestTask?.output_data && (
-                                                    <ContentPreview
-                                                        content={latestTask.output_data.found_items || latestTask.output_data.content || latestTask.output_data.summary}
-                                                        title={latestTask.output_data.title || 'Step Result'}
-                                                    />
+                                                    <details className="mt-2 group">
+                                                        <summary className="text-[11px] text-white/40 cursor-pointer hover:text-white/60 transition-colors list-none flex items-center gap-1 select-none">
+                                                            <span className="group-open:rotate-90 transition-transform duration-200">▶</span>
+                                                            {latestTask.output_data.title || 'View Step Result'}
+                                                        </summary>
+                                                        <div className="mt-2 pl-4 border-l border-white/10">
+                                                            <ContentPreview
+                                                                content={latestTask.output_data.found_items || latestTask.output_data.content || latestTask.output_data.summary}
+                                                                title={latestTask.output_data.title || 'Step Result'}
+                                                            />
+                                                        </div>
+                                                    </details>
                                                 )}
                                             </div>
                                         </div>

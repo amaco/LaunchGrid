@@ -160,12 +160,15 @@ export async function executeWorkflowAction(workflowId: string) {
 
             case 'SCAN_FEED': {
                 // Queue for browser extension (human-in-the-loop)
-                await taskService.queueForExtension(task.id)
+                // Pass pain points as keywords for smart search fallback
+                await taskService.queueForExtension(task.id, {
+                    keywords: context.painPoints || 'trading tips'
+                })
 
                 await emitTaskEvent(
                     'EXTENSION_TASK_QUEUED',
                     task.id,
-                    { stepType: 'SCAN_FEED' },
+                    { stepType: 'SCAN_FEED', keywords: context.painPoints },
                     {
                         organizationId: user.id,
                         userId: user.id,
@@ -175,9 +178,9 @@ export async function executeWorkflowAction(workflowId: string) {
                 )
 
                 revalidatePath(`/dashboard/project/${project.id}`)
-                return { 
-                    pending_extension: true, 
-                    message: 'Task queued for browser extension' 
+                return {
+                    pending_extension: true,
+                    message: 'Task queued for browser extension'
                 }
             }
 
@@ -193,7 +196,7 @@ export async function executeWorkflowAction(workflowId: string) {
 
             case 'GENERATE_REPLIES': {
                 const targets = (previousStepOutput as any)?.selected_items || []
-                
+
                 if (targets.length === 0) {
                     throw new StepExecutionError(
                         'No targets to reply to',
@@ -246,7 +249,7 @@ export async function executeWorkflowAction(workflowId: string) {
             case 'WAIT_APPROVAL': {
                 // Human-in-the-loop: mark for review
                 await taskService.markForReview(task.id, previousStepOutput || {})
-                
+
                 revalidatePath(`/dashboard/project/${project.id}`)
                 return {
                     awaiting_approval: true,
@@ -263,7 +266,7 @@ export async function executeWorkflowAction(workflowId: string) {
                     pending_action: targetStep.type,
                     message: 'Ready to post - awaiting approval',
                 })
-                
+
                 revalidatePath(`/dashboard/project/${project.id}`)
                 return {
                     awaiting_approval: true,
@@ -303,7 +306,7 @@ export async function executeWorkflowAction(workflowId: string) {
 
     } catch (e: any) {
         console.error('[Workflow] Execution failed:', e)
-        
+
         // Mark task as failed
         await taskService.fail(task.id, e.message)
 
@@ -417,4 +420,31 @@ export async function rejectTaskAction(taskId: string, reason: string) {
     }
 
     return { success: true }
+}
+
+/**
+ * Rerun a specific task (resets it and then executes workflow logic)
+ */
+export async function rerunStepAction(taskId: string, workflowId: string) {
+    const supabase = await createClient()
+    const requestId = nanoid()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Unauthorized')
+
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+
+    const taskService = new TaskService(serviceContext)
+
+    // 1. Reset the task to pending
+    await taskService.reset(taskId)
+
+    // 2. Trigger workflow execution for this workflow
+    // executeWorkflowAction will find this pending task and re-execute it
+    return executeWorkflowAction(workflowId)
 }

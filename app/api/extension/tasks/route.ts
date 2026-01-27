@@ -35,7 +35,10 @@ export async function GET() {
         taskId: task.id,
         type: task.step.type, // e.g., 'SCAN_FEED'
         platform: 'twitter', // We could derive this from pillar later
-        config: task.step.config
+        config: {
+            ...task.step.config,
+            ...task.output_data
+        }
     }
 
     return NextResponse.json({ task: payload }, {
