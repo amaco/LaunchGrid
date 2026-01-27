@@ -403,4 +403,118 @@ export class AIService extends BaseService {
       }
     });
   }
+
+
+  /**
+   * Filter and rank targets based on relevance
+   */
+  async filterTargets(
+    taskContext: ContentTaskContext,
+    items: Array<{ text: string; author?: string; url?: string }>,
+    providerId: AIProviderID = 'gemini'
+  ): Promise<Array<{ text: string; author?: string; reason?: string }>> {
+    return this.execute('filterTargets', async () => {
+      const startTime = Date.now();
+
+      // If less than 3 items, just return them all
+      if (items.length <= 3) {
+        return items;
+      }
+
+      await this.emitEvent('AI_GENERATION_STARTED', 'filtering', {
+        provider: providerId,
+        type: 'filtering',
+        itemCount: items.length,
+      });
+
+      try {
+        const provider = await this.getProvider(providerId);
+        const apiKey = await this.getUserApiKey(providerId);
+
+        // We reuse generateContent but with a specific prompt
+        const filterPrompt = `
+You are a strict content curator for a "${taskContext.project.name}" marketing campaign.
+Audience: ${taskContext.project.audience}
+Pain Points: ${taskContext.project.painPoints}
+Project Description: ${taskContext.project.description}
+
+YOUR GOAL: Select the top 5 posts that are HIGHLY RELEVANT to the project's niche. 
+CRITICAL: The output MUST be a valid JSON array. Do not include any conversational text before or after the JSON.
+
+CRITERIA:
+1. Relevance (Must Match): The post MUST be about ${taskContext.project.name}, trading, finance, or psychology. 
+2. REJECT: Weather, sports, politics, or generic viral bait (e.g., "snow in your area").
+3. REJECT: Posts that are purely personal status updates with no business value.
+
+Analyze the following social media posts:
+POSTS:
+${JSON.stringify(items.slice(0, 20), null, 2)}
+
+Return ONLY a valid JSON array of the selected objects (max 5). 
+Format:
+[
+  {
+    "text": "...",
+    "author": "...",
+    "reason": "Explain relevance here"
+  }
+]
+`;
+
+        const response = await provider.generateContent({
+          ...taskContext,
+          customPrompt: filterPrompt
+        }, apiKey);
+
+        // Attempt to parse the JSON response
+        let selectedItems = [];
+        try {
+          // Robust JSON extraction: Find the first '[' and last ']'
+          const jsonString = response.content;
+          const startIndex = jsonString.indexOf('[');
+          const endIndex = jsonString.lastIndexOf(']');
+
+          if (startIndex !== -1 && endIndex !== -1) {
+            const cleanJson = jsonString.substring(startIndex, endIndex + 1);
+            selectedItems = JSON.parse(cleanJson);
+          } else {
+            throw new Error("No JSON array found in response");
+          }
+        } catch (e) {
+          console.error("Failed to parse filter JSON. Raw response:", response.content);
+          console.warn("Falling back to top 5 due to parse error", e);
+
+          // Fallback but mark them as potentially unfiltered
+          selectedItems = items.slice(0, 5).map(item => ({
+            ...item,
+            reason: "⚠️ Fallback: AI filtering failed, showing raw top result."
+          }));
+        }
+
+        const duration = Date.now() - startTime;
+
+        await logAIDecision(
+          {
+            organizationId: this.organizationId,
+            userId: this.userId,
+            requestId: this.context.requestId,
+          },
+          providerId,
+          'filterTargets',
+          { originalCount: items.length },
+          { selectedCount: selectedItems.length },
+          duration
+        );
+
+        return selectedItems;
+
+      } catch (error: any) {
+        throw new AIProviderError(
+          providerId,
+          error.message || 'Failed to filter targets',
+          { duration: Date.now() - startTime }
+        );
+      }
+    });
+  }
 }

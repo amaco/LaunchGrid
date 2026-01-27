@@ -157,7 +157,13 @@ export default async function ProjectPage({ params }: Props) {
                                                         </summary>
                                                         <div className="mt-2 pl-4 border-l border-white/10">
                                                             <ContentPreview
-                                                                content={latestTask.output_data.found_items || latestTask.output_data.content || latestTask.output_data.summary}
+                                                                content={
+                                                                    latestTask.output_data.found_items ||
+                                                                    latestTask.output_data.selected_items ||
+                                                                    latestTask.output_data.replies ||
+                                                                    latestTask.output_data.content ||
+                                                                    latestTask.output_data.summary
+                                                                }
                                                                 title={latestTask.output_data.title || 'Step Result'}
                                                             />
                                                         </div>

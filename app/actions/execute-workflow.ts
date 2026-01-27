@@ -186,10 +186,40 @@ export async function executeWorkflowAction(workflowId: string) {
 
             case 'SELECT_TARGETS': {
                 const foundItems = (previousStepOutput as any)?.found_items || []
+
+                // If mock, skip AI
+                if ((previousStepOutput as any)?.is_mock) {
+                    resultData = {
+                        is_mock: true,
+                        selected_items: foundItems,
+                        rationale: 'Selected all (MOCK_MODE)',
+                    }
+                    break
+                }
+
+                // AI Filtering
+                const selectedItems = await aiService.filterTargets(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || '',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: targetStep.config,
+                    },
+                    foundItems,
+                    providerId
+                )
+
                 resultData = {
-                    is_mock: (previousStepOutput as any)?.is_mock || false,
-                    selected_items: foundItems,
-                    rationale: 'Selected all high-relevance items.',
+                    selected_items: selectedItems,
+                    title: `Selected ${selectedItems.length} High-Value Targets`,
+                    rationale: `Filtered from ${foundItems.length} raw candidates.`,
                 }
                 break
             }
