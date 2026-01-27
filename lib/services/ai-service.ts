@@ -433,32 +433,38 @@ export class AIService extends BaseService {
 
         // We reuse generateContent but with a specific prompt
         const filterPrompt = `
-You are a strict content curator for a "${taskContext.project.name}" marketing campaign.
-Audience: ${taskContext.project.audience}
-Pain Points: ${taskContext.project.painPoints}
-Project Description: ${taskContext.project.description}
+You are an EXTREMELY strict content curator for "${taskContext.project.name}".
 
-YOUR GOAL: Select the top 5 posts that are HIGHLY RELEVANT to the project's niche. 
-CRITICAL: The output MUST be a valid JSON array. Do not include any conversational text before or after the JSON.
+PROJECT INFO:
+- Name: ${taskContext.project.name}
+- Description: ${taskContext.project.description}
+- Target Audience: ${taskContext.project.audience}
+- Pain Points We Solve: ${taskContext.project.painPoints}
 
-CRITERIA:
-1. Relevance (Must Match): The post MUST be about ${taskContext.project.name}, trading, finance, or psychology. 
-2. REJECT: Weather, sports, politics, or generic viral bait (e.g., "snow in your area").
-3. REJECT: Posts that are purely personal status updates with no business value.
+YOUR TASK: Select ONLY posts that are DIRECTLY RELEVANT to our product/service.
 
-Analyze the following social media posts:
-POSTS:
+STRICT RULES:
+1. A post is relevant ONLY IF it discusses topics related to: ${taskContext.project.description}
+2. IMMEDIATELY REJECT any post about: weather, sports, politics, travel, food, memes, or generic life updates.
+3. IMMEDIATELY REJECT any off-topic engagement bait (high likes ≠ relevant).
+4. The author must be talking about something our product can help with.
+
+EXAMPLES of RELEVANT for a "Trading Journal App":
+- "I keep making the same mistakes in my trades"
+- "Need to track my trading performance better"
+- "Looking for ways to improve my trading discipline"
+
+EXAMPLES of IRRELEVANT (REJECT THESE):
+- "Weather update: it escalated fast" (weather, irrelevant)
+- "The streets of X university" (travel/lifestyle, irrelevant)
+- "Best 4 hours learning to build" (generic, no connection to our app)
+
+Analyze these posts:
 ${JSON.stringify(items.slice(0, 20), null, 2)}
 
-Return ONLY a valid JSON array of the selected objects (max 5). 
-Format:
-[
-  {
-    "text": "...",
-    "author": "...",
-    "reason": "Explain relevance here"
-  }
-]
+Return ONLY a valid JSON array (max 5 items). If fewer than 5 are relevant, return fewer.
+Format: [{ "text": "...", "author": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
+If NO posts are relevant, return an empty array: []
 `;
 
         const response = await provider.generateContent({

@@ -1,6 +1,6 @@
 // Background Service Worker
 
-const API_URL = 'http://localhost:3000/api/extension';
+const API_URL = 'http://localhost:3000/api/v1/extension';
 
 // 1. Setup Polling
 // We attempt to use chrome.alarms, but fallback to setTimeout if API is missing (e.g., permission glitch)
@@ -88,10 +88,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 async function reportResult(taskId, resultData) {
     try {
-        await fetch(`${API_URL}/result`, {
+        await fetch(`${API_URL}/tasks`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ taskId, result: resultData })
+            body: JSON.stringify({
+                taskId,
+                result: {
+                    success: true,
+                    data: resultData
+                }
+            })
         });
         console.log("Result reported for", taskId);
     } catch (e) {

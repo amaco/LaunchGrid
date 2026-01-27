@@ -453,7 +453,8 @@ export async function rejectTaskAction(taskId: string, reason: string) {
 }
 
 /**
- * Rerun a specific task (resets it and then executes workflow logic)
+ * Rerun a specific task (resets it and executes ONLY that step)
+ * This does NOT trigger subsequent steps - use executeWorkflowAction for full workflow
  */
 export async function rerunStepAction(taskId: string, workflowId: string) {
     const supabase = await createClient()
@@ -470,11 +471,170 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
     )
 
     const taskService = new TaskService(serviceContext)
+    const aiService = new AIService(serviceContext)
+    const workflowService = new WorkflowService(serviceContext)
 
     // 1. Reset the task to pending
     await taskService.reset(taskId)
 
-    // 2. Trigger workflow execution for this workflow
-    // executeWorkflowAction will find this pending task and re-execute it
-    return executeWorkflowAction(workflowId)
+    // 2. Get the task and its associated step
+    const task = await taskService.getById(taskId)
+    if (!task) throw new Error('Task not found')
+
+    // 3. Get the step details
+    const { data: step } = await supabase
+        .from('steps')
+        .select('*')
+        .eq('id', task.stepId)
+        .single()
+
+    if (!step) throw new Error('Step not found')
+
+    // 4. Get the workflow and project context
+    const executionState = await workflowService.getExecutionState(workflowId)
+    const { workflow, steps } = executionState
+
+    const { data: project } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('id', workflow.projectId)
+        .single()
+
+    if (!project) throw new Error('Project not found')
+
+    const { data: pillar } = await supabase
+        .from('pillars')
+        .select('*')
+        .eq('id', workflow.pillarId)
+        .single()
+
+    const context = project.context || {}
+    const providerId = (context.aiProvider as AIProviderID) || 'gemini'
+
+    // 5. Get previous step output for chaining
+    let previousStepOutput: Record<string, unknown> | undefined
+    const stepIdx = steps.findIndex(s => s.id === step.id)
+    if (stepIdx > 0) {
+        const prevTask = await taskService.getByStepId(steps[stepIdx - 1].id)
+        previousStepOutput = prevTask?.outputData
+    }
+
+    // 6. Start the task
+    await taskService.start(task.id)
+
+    // 7. Execute ONLY this specific step
+    let resultData: Record<string, unknown>
+
+    try {
+        switch (step.type) {
+            case 'GENERATE_DRAFT':
+            case 'GENERATE_OUTLINE': {
+                const content = await aiService.generateContent(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || 'General Audience',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: step.config,
+                        previousOutput: previousStepOutput,
+                    },
+                    providerId
+                )
+                resultData = content as unknown as Record<string, unknown>
+                break
+            }
+
+            case 'SCAN_FEED': {
+                await taskService.queueForExtension(task.id, {
+                    keywords: context.painPoints || 'trading tips'
+                })
+                revalidatePath(`/dashboard/project/${project.id}`)
+                return { success: true, message: 'Step queued for browser extension' }
+            }
+
+            case 'SELECT_TARGETS': {
+                const foundItems = (previousStepOutput as any)?.found_items || []
+
+                if ((previousStepOutput as any)?.is_mock) {
+                    resultData = {
+                        is_mock: true,
+                        selected_items: foundItems,
+                        rationale: 'Selected all (MOCK_MODE)',
+                    }
+                    break
+                }
+
+                const selectedItems = await aiService.filterTargets(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || '',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: step.config,
+                    },
+                    foundItems,
+                    providerId
+                )
+
+                resultData = {
+                    selected_items: selectedItems,
+                    title: `Selected ${selectedItems.length} High-Value Targets`,
+                    rationale: `Filtered from ${foundItems.length} raw candidates.`,
+                }
+                break
+            }
+
+            case 'GENERATE_REPLIES': {
+                const selectedItems = (previousStepOutput as any)?.selected_items || []
+                const replies = await aiService.generateReplies(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || '',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: step.config,
+                    },
+                    selectedItems,
+                    providerId
+                )
+                resultData = { replies, title: `Generated ${replies.length} Replies` }
+                break
+            }
+
+            default:
+                throw new StepExecutionError(
+                    `Unknown step type: ${step.type}`,
+                    step.id,
+                    step.type
+                )
+        }
+
+        // 8. Complete the task with result (NOT triggering subsequent steps)
+        await taskService.complete(task.id, resultData)
+
+        revalidatePath(`/dashboard/project/${project.id}`)
+        return { success: true, message: `Step "${step.name}" re-executed successfully` }
+
+    } catch (error: any) {
+        await taskService.fail(task.id, error.message)
+        throw error
+    }
 }
