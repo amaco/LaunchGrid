@@ -1,76 +1,82 @@
 'use server'
 
+/**
+ * Regenerate Project Strategy Server Action
+ * 
+ * Following the constitution:
+ * - Uses service layer
+ * - Event-driven
+ * - Full audit trail
+ */
+
 import { createClient } from '@/utils/supabase/server'
-import { AIFactory, AIProviderID } from '@/utils/ai/factory'
-import { decrypt } from '@/utils/encryption'
 import { revalidatePath } from 'next/cache'
+import { nanoid } from 'nanoid'
+import { ProjectService, AIService, createServiceContext } from '@/lib/services'
+import { validateInput, uuidSchema } from '@/lib/core/validation'
+import { emitProjectEvent } from '@/lib/events/event-bus'
+import { logUserAction } from '@/lib/events/audit-logger'
 import { createDefaultWorkflowSteps } from '@/utils/workflow-utils'
+import { AuthenticationError } from '@/lib/core/errors'
+import type { AIProviderID } from '@/lib/core/types'
 
 export async function regenerateStrategyAction(projectId: string) {
     const supabase = await createClient()
+    const requestId = nanoid()
 
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) throw new Error('Unauthorized')
+    if (!user) throw new AuthenticationError('Unauthorized')
+
+    // Validate input
+    const validatedId = validateInput(uuidSchema, projectId)
+
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+
+    const projectService = new ProjectService(serviceContext)
+    const aiService = new AIService(serviceContext)
 
     // 1. Fetch Project & Context
-    const { data: project } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', projectId)
-        .eq('user_id', user.id)
-        .single()
-
-    if (!project) throw new Error('Project not found')
-
+    const project = await projectService.getById(validatedId)
     const context = project.context || {}
     const providerId = (context.aiProvider as AIProviderID) || 'gemini'
 
-    // 2. Fetch Secrets
-    const { data: secrets } = await supabase
-        .from('user_secrets')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-
-    // Decrypt API Key
-    const userApiKey = secrets && secrets[`${providerId}_key`]
-        ? decrypt(secrets[`${providerId}_key`])
-        : undefined;
-
-    // 3. Generate New Blueprint
-    let blueprint;
+    // 2. Generate New Blueprint
+    let blueprint
     try {
-        const provider = AIFactory.getProvider(providerId);
-        // Reuse the same context structure
-        blueprint = await provider.generateBlueprint({
-            name: project.name,
-            description: context.description,
-            audience: context.audience,
-            painPoints: context.painPoints,
-            budget: context.budget
-        }, userApiKey);
+        blueprint = await aiService.generateBlueprint(
+            {
+                name: project.name,
+                description: context.description || '',
+                audience: context.audience || '',
+                painPoints: context.painPoints || '',
+                budget: context.budget || 0,
+            },
+            providerId
+        )
     } catch (e: any) {
         console.error("Regeneration Error", e)
         throw new Error(`AI Generation Failed: ${e.message}`)
     }
 
-    // 4. Wipe Old Strategy (Cascading delete via Pillars? No, manually to be safe or just delete pillars)
-    // Pillars cascade delete workflows, so deleting pillars is enough.
-    // However, we want to keep the PROJECT.
-
-    // Check constraint: triggers? RLS?
-    // Let's delete all pillars for this project.
+    // 3. Delete old strategy (pillars cascade to workflows and steps)
     const { error: deleteError } = await supabase
         .from('pillars')
         .delete()
-        .eq('project_id', projectId)
+        .eq('project_id', validatedId)
 
-    if (deleteError) throw new Error("Failed to clear old strategy")
+    if (deleteError) {
+        throw new Error("Failed to clear old strategy")
+    }
 
-    // 5. Save New Pillars & Workflows (Duplicate logic from create-project, should be shared function ideally)
-    const pillarMap = new Map() // local_id -> db_uuid
+    // 4. Save New Pillars & Workflows
+    const pillarMap = new Map<string, string>()
 
-    for (const p of blueprint.active_pillars) {
+    for (const p of blueprint.activePillars) {
         const { data: pillar } = await supabase
             .from('pillars')
             .insert({
@@ -85,13 +91,12 @@ export async function regenerateStrategyAction(projectId: string) {
         if (pillar) pillarMap.set(p.id, pillar.id)
     }
 
-    // 6. Save Workflows
+    // 5. Save Workflows
     for (const wf of blueprint.workflows) {
-        // Find the pillar definition to get its type
-        const pillarDef = blueprint.active_pillars.find(p => p.id === wf.pillar_ref)
+        const pillarDef = blueprint.activePillars.find(p => p.id === wf.pillarRef)
         const pillarType = pillarDef ? pillarDef.type : 'custom'
+        const dbPillarId = pillarMap.get(wf.pillarRef)
 
-        const dbPillarId = pillarMap.get(wf.pillar_ref)
         if (dbPillarId) {
             const { data: wfEntry } = await supabase
                 .from('workflows')
@@ -100,16 +105,57 @@ export async function regenerateStrategyAction(projectId: string) {
                     pillar_id: dbPillarId,
                     name: wf.name,
                     description: wf.description,
-                    status: 'active'
+                    status: 'active',
+                    config: {
+                        requiresApproval: true,
+                        maxRetries: 3,
+                        timeout: 30000,
+                    }
                 })
                 .select()
                 .single()
 
             if (wfEntry) {
-                await createDefaultWorkflowSteps(supabase, wfEntry.id, pillarType, { name: wf.name, goal: wf.goal })
+                await createDefaultWorkflowSteps(supabase, wfEntry.id, pillarType, { 
+                    name: wf.name, 
+                    goal: wf.goal 
+                })
             }
         }
     }
+
+    // 6. Emit event
+    await emitProjectEvent(
+        'BLUEPRINT_REGENERATED',
+        project.id,
+        {
+            pillarCount: blueprint.activePillars.length,
+            workflowCount: blueprint.workflows.length,
+            provider: providerId,
+        },
+        {
+            organizationId: user.id,
+            userId: user.id,
+            correlationId: requestId,
+            source: 'ui',
+        }
+    )
+
+    // 7. Audit log
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'REGENERATE_STRATEGY',
+        'project',
+        projectId,
+        {
+            pillarCount: blueprint.activePillars.length,
+            workflowCount: blueprint.workflows.length,
+        }
+    )
 
     revalidatePath(`/dashboard/project/${projectId}`)
 }

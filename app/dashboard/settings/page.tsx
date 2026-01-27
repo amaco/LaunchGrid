@@ -1,5 +1,4 @@
 
-import { createClient } from '@/utils/supabase/server'
 import Link from 'next/link'
 import { Settings, Key, Shield, Database } from 'lucide-react'
 
@@ -39,7 +38,7 @@ export default async function SettingsPage() {
                     </div>
                     <h3 className="text-xl font-bold text-white mb-2">Workflow Templates</h3>
                     <p className="text-sm text-foreground/50">
-                        Edit the default "LEGO blocks" and prompt templates used for strategy generation.
+                        Edit the default LEGO blocks and prompt templates used for strategy generation.
                     </p>
                 </Link>
 
