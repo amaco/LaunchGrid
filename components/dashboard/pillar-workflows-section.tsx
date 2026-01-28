@@ -3,13 +3,14 @@
 /**
  * Pillar Workflows Section
  * 
- * Shows workflows grouped by pillar with "New Workflow" button.
- * Allows creating multiple workflows per channel.
+ * Unified view: channels with their workflows, click to manage.
+ * Compact, intuitive UI.
  */
 
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
 import CreateWorkflowModal from './create-workflow-modal'
+import WorkflowCard from './workflow-card'
 
 interface PillarWorkflowsSectionProps {
     pillars: Array<{
@@ -22,6 +23,18 @@ interface PillarWorkflowsSectionProps {
         pillar_id: string
         name: string
         description?: string
+        status?: string
+        steps?: Array<{
+            id: string
+            type: string
+            position: number
+            tasks?: Array<{
+                id: string
+                status: string
+                created_at: string
+                output_data?: any
+            }>
+        }>
     }>
     projectId: string
 }
@@ -61,58 +74,51 @@ export default function PillarWorkflowsSection({
 
     return (
         <>
-            <div className="space-y-6">
+            <div className="space-y-4">
                 {pillars.map((pillar) => {
                     const pillarWorkflows = workflowsByPillar[pillar.id] || []
                     const icon = PILLAR_ICONS[pillar.type] || '🚀'
 
                     return (
-                        <div key={pillar.id} className="bg-white/5 rounded-xl p-4 border border-white/10">
-                            {/* Pillar Header */}
-                            <div className="flex items-center justify-between mb-4">
+                        <div key={pillar.id} className="bg-white/5 rounded-xl border border-white/10 overflow-hidden">
+                            {/* Pillar Header - Compact */}
+                            <div className="flex items-center justify-between px-4 py-3 bg-white/5">
                                 <div className="flex items-center gap-3">
-                                    <span className="text-2xl">{icon}</span>
+                                    <span className="text-xl">{icon}</span>
                                     <div>
-                                        <h3 className="font-bold text-white">{pillar.name}</h3>
-                                        <span className="text-xs text-foreground/40 font-mono uppercase">
+                                        <h3 className="font-bold text-white text-sm">{pillar.name}</h3>
+                                        <span className="text-[10px] text-foreground/40 font-mono uppercase">
                                             {pillar.type.replace(/_/g, ' ')}
                                         </span>
                                     </div>
                                 </div>
                                 <button
                                     onClick={() => handleNewWorkflow(pillar)}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-accent/10 hover:bg-accent/20 text-accent text-sm rounded-lg transition-colors"
+                                    className="flex items-center gap-1.5 px-2.5 py-1 bg-accent/10 hover:bg-accent/20 text-accent text-xs rounded-lg transition-colors"
                                 >
-                                    <Plus className="w-4 h-4" />
-                                    New Workflow
+                                    <Plus className="w-3 h-3" />
+                                    <span className="hidden sm:inline">New Workflow</span>
                                 </button>
                             </div>
 
                             {/* Workflow Cards */}
-                            {pillarWorkflows.length > 0 ? (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {pillarWorkflows.map((wf) => (
-                                        <a
-                                            key={wf.id}
-                                            href={`#workflow-${wf.id}`}
-                                            className="p-3 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-accent/30 rounded-lg transition-all"
-                                        >
-                                            <div className="font-medium text-sm text-white">
-                                                {wf.name}
-                                            </div>
-                                            {wf.description && (
-                                                <div className="text-xs text-foreground/50 mt-1 line-clamp-1">
-                                                    {wf.description}
-                                                </div>
-                                            )}
-                                        </a>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="text-center py-6 text-foreground/40 text-sm">
-                                    No workflows yet. Click "New Workflow" to create one.
-                                </div>
-                            )}
+                            <div className="p-3">
+                                {pillarWorkflows.length > 0 ? (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                        {pillarWorkflows.map((wf) => (
+                                            <WorkflowCard
+                                                key={wf.id}
+                                                workflow={wf}
+                                                projectId={projectId}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-4 text-foreground/30 text-xs">
+                                        No workflows yet
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )
                 })}
