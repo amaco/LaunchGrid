@@ -68,7 +68,7 @@ class AuditLoggerImpl {
 
     // Add to pending logs
     this.pendingLogs.push(auditLog);
-    
+
     // Also add to in-memory store immediately
     auditStore.push(auditLog);
 
@@ -126,9 +126,34 @@ class AuditLoggerImpl {
     this.pendingLogs = [];
 
     try {
-      // TODO: Implement actual database persistence
-      // For now, logs are in the in-memory auditStore
-      console.log(`[Audit] Flushed ${logsToFlush.length} audit logs`);
+      // Dynamically import to avoid circular dependencies
+      const { createAdminClient } = await import('../../utils/supabase/admin');
+      const supabase = createAdminClient();
+
+      // Convert to database format
+      const dbLogs = logsToFlush.map(log => ({
+        id: log.id,
+        organization_id: log.organizationId,
+        user_id: log.userId,
+        action: log.action,
+        resource_type: log.resourceType,
+        resource_id: log.resourceId,
+        changes: log.changes || null,
+        metadata: log.metadata || null,
+        created_at: log.createdAt.toISOString(),
+      }));
+
+      const { error } = await supabase
+        .from('audit_logs')
+        .insert(dbLogs);
+
+      if (error) {
+        console.error('[Audit] Failed to persist logs:', error.message);
+        // Re-add failed logs to pending
+        this.pendingLogs.unshift(...logsToFlush);
+      } else {
+        console.log(`[Audit] Persisted ${logsToFlush.length} audit logs to database`);
+      }
     } catch (error) {
       console.error('[Audit] Failed to flush logs:', error);
       // Re-add failed logs to pending
@@ -301,7 +326,7 @@ export async function logAIDecision(
 
 function summarizeForAudit(data: Record<string, unknown>): Record<string, unknown> {
   const summary: Record<string, unknown> = {};
-  
+
   for (const [key, value] of Object.entries(data)) {
     if (typeof value === 'string' && value.length > 200) {
       summary[key] = `${value.substring(0, 200)}... (${value.length} chars)`;
@@ -313,6 +338,6 @@ function summarizeForAudit(data: Record<string, unknown>): Record<string, unknow
       summary[key] = value;
     }
   }
-  
+
   return summary;
 }

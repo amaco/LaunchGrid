@@ -5,11 +5,67 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("Command Received:", request);
 
     if (request.action === 'SCAN_FEED') {
-        scanFeed(request.taskId);
+        scanFeed(request.taskId, request.config || {});
     }
 });
 
-function scanFeed(taskId, config = {}) {
+/**
+ * Auto-scroll to load more tweets, then scrape them
+ * @param {number} targetCount - How many tweets to try to collect
+ * @param {number} maxScrolls - Maximum scroll attempts
+ */
+async function autoScrollAndCollect(targetCount = 25, maxScrolls = 5) {
+    const tweets = new Map(); // Use Map to dedupe by text
+    let scrollAttempts = 0;
+    let lastHeight = document.body.scrollHeight;
+
+    while (tweets.size < targetCount && scrollAttempts < maxScrolls) {
+        // Scrape current articles
+        const articles = document.querySelectorAll('article');
+        articles.forEach(article => {
+            try {
+                const textNode = article.querySelector('[data-testid="tweetText"]');
+                const userNode = article.querySelector('[data-testid="User-Name"]');
+                const timeNode = article.querySelector('time');
+
+                if (textNode && userNode) {
+                    const text = textNode.innerText;
+                    if (!tweets.has(text)) { // Dedupe
+                        tweets.set(text, {
+                            text: text,
+                            author: userNode.innerText.split('\n')[1] || userNode.innerText.split('\n')[0],
+                            time: timeNode ? timeNode.getAttribute('datetime') : new Date().toISOString()
+                        });
+                    }
+                }
+            } catch (e) {
+                console.warn("Failed to parse tweet", e);
+            }
+        });
+
+        console.log(`[LaunchGrid] Collected ${tweets.size} tweets, scroll attempt ${scrollAttempts + 1}/${maxScrolls}`);
+
+        // Scroll down to load more
+        window.scrollTo(0, document.body.scrollHeight);
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Wait for new tweets to load
+
+        // Check if we actually scrolled (new content loaded)
+        const newHeight = document.body.scrollHeight;
+        if (newHeight === lastHeight) {
+            console.log("[LaunchGrid] No new content loaded, stopping scroll");
+            break;
+        }
+        lastHeight = newHeight;
+        scrollAttempts++;
+    }
+
+    // Scroll back to top for good UX
+    window.scrollTo(0, 0);
+
+    return Array.from(tweets.values());
+}
+
+async function scanFeed(taskId, config = {}) {
     // 1. Check for login state
     const isLoggedOut = document.querySelector('[data-testid="loginButton"]') ||
         document.querySelector('a[href="/login"]') ||
@@ -28,27 +84,11 @@ function scanFeed(taskId, config = {}) {
         return;
     }
 
-    // 2. Perform Scan
-    const tweets = [];
-    const articles = document.querySelectorAll('article');
+    // 2. Auto-scroll and collect tweets
+    const targetCount = config.targetTweetCount || 25;
+    console.log(`[LaunchGrid] Starting scan, target: ${targetCount} tweets`);
 
-    articles.forEach(article => {
-        try {
-            const textNode = article.querySelector('[data-testid="tweetText"]');
-            const userNode = article.querySelector('[data-testid="User-Name"]');
-            const timeNode = article.querySelector('time');
-
-            if (textNode && userNode) {
-                tweets.push({
-                    text: textNode.innerText,
-                    author: userNode.innerText.split('\n')[1] || userNode.innerText.split('\n')[0], // Extract @handle
-                    time: timeNode ? timeNode.getAttribute('datetime') : new Date().toISOString()
-                });
-            }
-        } catch (e) {
-            console.warn("Failed to parse tweet", e);
-        }
-    });
+    const tweets = await autoScrollAndCollect(targetCount, 5);
 
     // 3. Smart Search Fallback
     // If feed is dry (< 3 items) and we haven't tried searching yet
@@ -59,15 +99,17 @@ function scanFeed(taskId, config = {}) {
         return; // Background script will re-trigger the task once page loads
     }
 
-    console.log(`Scanned ${tweets.length} tweets.`);
+    console.log(`[LaunchGrid] Scan complete. Found ${tweets.length} tweets.`);
 
-    // 4. Report Results
+    // 4. Report Results (cap at 20 for performance)
     chrome.runtime.sendMessage({
         type: 'TASK_RESULT',
         taskId: taskId,
         data: {
-            found_items: tweets.slice(0, 15),
-            summary: tweets.length > 0 ? `Successfully scanned ${tweets.length} tweets.` : "No relevant tweets found in feed."
+            found_items: tweets.slice(0, 20),
+            summary: tweets.length > 0
+                ? `Successfully scanned ${tweets.length} tweets (showing top 20).`
+                : "No relevant tweets found in feed."
         }
     });
 }

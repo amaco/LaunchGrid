@@ -8,6 +8,8 @@ import RegenerateButton from '@/components/dashboard/regenerate-button'
 import WorkflowCardActions from '@/components/dashboard/workflow-card-actions'
 import ContentPreview from '@/components/dashboard/content-preview'
 import RerunStepButton from '@/components/dashboard/rerun-step-button'
+import TaskStatusPoller from '@/components/dashboard/task-status-poller'
+import TaskContentEditor from '@/components/dashboard/task-content-editor'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -138,9 +140,12 @@ export default async function ProjectPage({ params }: Props) {
                                                             </span>
                                                         )}
                                                         {latestTask?.status === 'extension_queued' && (
-                                                            <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold animate-pulse">
-                                                                Waiting for Browser...
-                                                            </span>
+                                                            <>
+                                                                <span className="text-[10px] bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold animate-pulse">
+                                                                    Waiting for Browser...
+                                                                </span>
+                                                                <TaskStatusPoller taskId={latestTask.id} initialStatus={latestTask.status} />
+                                                            </>
                                                         )}
                                                         {isDone && latestTask && (
                                                             <RerunStepButton taskId={latestTask.id} workflowId={wf.id} />
@@ -149,26 +154,47 @@ export default async function ProjectPage({ params }: Props) {
                                                 </div>
 
                                                 {/* Draft Preview if ready - Collapsible */}
-                                                {isDone && latestTask?.output_data && (
-                                                    <details className="mt-2 group">
-                                                        <summary className="text-[11px] text-white/40 cursor-pointer hover:text-white/60 transition-colors list-none flex items-center gap-1 select-none">
-                                                            <span className="group-open:rotate-90 transition-transform duration-200">▶</span>
-                                                            {latestTask.output_data.title || 'View Step Result'}
-                                                        </summary>
-                                                        <div className="mt-2 pl-4 border-l border-white/10">
-                                                            <ContentPreview
-                                                                content={
-                                                                    latestTask.output_data.found_items ||
-                                                                    latestTask.output_data.selected_items ||
-                                                                    latestTask.output_data.replies ||
-                                                                    latestTask.output_data.content ||
-                                                                    latestTask.output_data.summary
-                                                                }
-                                                                title={latestTask.output_data.title || 'Step Result'}
-                                                            />
-                                                        </div>
-                                                    </details>
-                                                )}
+                                                {isDone && latestTask?.output_data && (() => {
+                                                    // Determine if content is editable (AI-generated posts/replies vs raw scan data)
+                                                    const isEditable = !!(
+                                                        latestTask.output_data.replies ||
+                                                        latestTask.output_data.content
+                                                    )
+                                                    const displayContent =
+                                                        latestTask.output_data.found_items ||
+                                                        latestTask.output_data.selected_items ||
+                                                        latestTask.output_data.replies ||
+                                                        latestTask.output_data.content ||
+                                                        latestTask.output_data.summary
+                                                    const contentKey =
+                                                        latestTask.output_data.replies ? 'replies' :
+                                                            latestTask.output_data.content ? 'content' : 'summary'
+
+                                                    return (
+                                                        <details className="mt-2 group">
+                                                            <summary className="text-[11px] text-white/40 cursor-pointer hover:text-white/60 transition-colors list-none flex items-center gap-1 select-none">
+                                                                <span className="group-open:rotate-90 transition-transform duration-200">▶</span>
+                                                                {latestTask.output_data.title || 'View Step Result'}
+                                                            </summary>
+                                                            <div className="mt-2 pl-4 border-l border-white/10">
+                                                                {isEditable ? (
+                                                                    <TaskContentEditor
+                                                                        taskId={latestTask.id}
+                                                                        projectId={project.id}
+                                                                        content={displayContent}
+                                                                        contentKey={contentKey}
+                                                                        title={latestTask.output_data.title || 'Step Result'}
+                                                                    />
+                                                                ) : (
+                                                                    <ContentPreview
+                                                                        content={displayContent}
+                                                                        title={latestTask.output_data.title || 'Step Result'}
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                        </details>
+                                                    )
+                                                })()}
                                             </div>
                                         </div>
                                     )

@@ -71,6 +71,9 @@ export class OpenAIProvider implements AIStrategyProvider {
 
     const openai = new OpenAI({ apiKey: key });
 
+    // Check if this is a custom prompt (like filterTargets)
+    const isCustomPrompt = !!task.customPrompt;
+
     const prompt = task.customPrompt || `
         You are a specialised Content Creator for the "${task.pillarName}" channel.
         Project: ${task.project.name}
@@ -96,16 +99,28 @@ export class OpenAIProvider implements AIStrategyProvider {
         `;
 
     try {
-      // Calculate complexity based on budget? Higher budget = GPT-4o, Lower = GPT-3.5? 
-      // For now default to 4o for quality.
       const completion = await openai.chat.completions.create({
-        messages: [{ role: "system", content: "You are a specialized content creator." }, { role: "user", content: prompt }],
+        messages: [
+          { role: "system", content: "You are a specialized content creator." },
+          { role: "user", content: prompt }
+        ],
         model: "gpt-4o",
-        response_format: { type: "json_object" },
+        // Only use json_object for standard prompts - custom prompts may return arrays
+        ...(isCustomPrompt ? {} : { response_format: { type: "json_object" } }),
       });
 
       const content = completion.choices[0].message.content;
       if (!content) throw new Error("No content returned");
+
+      // For custom prompts, return raw content wrapped in a ContentDraft-like structure
+      if (isCustomPrompt) {
+        return {
+          title: "Custom Response",
+          content: content, // Raw AI response as string
+          hashtags: [],
+          suggestedImagePrompt: "",
+        };
+      }
 
       return JSON.parse(content);
     } catch (error) {

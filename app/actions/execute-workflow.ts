@@ -551,9 +551,11 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
             }
 
             case 'SCAN_FEED': {
+                console.log('[RERUN] SCAN_FEED - Queuing task for extension:', task.id)
                 await taskService.queueForExtension(task.id, {
                     keywords: context.painPoints || 'trading tips'
                 })
+                console.log('[RERUN] SCAN_FEED - Task queued successfully')
                 revalidatePath(`/dashboard/project/${project.id}`)
                 return { success: true, message: 'Step queued for browser extension' }
             }
@@ -637,4 +639,68 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
         await taskService.fail(task.id, error.message)
         throw error
     }
+}
+
+/**
+ * Update task content (for human-in-the-loop editing)
+ * Allows users to edit AI-generated replies, posts, selected items, etc.
+ */
+export async function updateTaskContentAction(
+    taskId: string,
+    projectId: string,
+    updatedContent: Record<string, unknown>
+) {
+    const supabase = await createClient()
+    const requestId = nanoid()
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Unauthorized')
+
+    // Create service context
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+
+    const taskService = new TaskService(serviceContext)
+
+    // Get the current task
+    const task = await taskService.getById(taskId)
+    if (!task) throw new Error('Task not found')
+
+    // Merge the updated content with existing output_data
+    const mergedOutput = {
+        ...task.outputData,
+        ...updatedContent,
+        _editedAt: new Date().toISOString(),
+        _editedBy: user.id,
+    }
+
+    // Update the task with edited content
+    const { error } = await supabase
+        .from('tasks')
+        .update({ output_data: mergedOutput })
+        .eq('id', taskId)
+
+    if (error) throw new Error(`Failed to update task: ${error.message}`)
+
+    // Log the edit action
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'TASK_CONTENT_EDITED',
+        'task',
+        taskId,
+        {
+            editedFields: Object.keys(updatedContent),
+        }
+    )
+
+    revalidatePath(`/dashboard/project/${projectId}`)
+    return { success: true, message: 'Content updated successfully' }
 }

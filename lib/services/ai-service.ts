@@ -350,10 +350,48 @@ export class AIService extends BaseService {
               await new Promise((resolve) => setTimeout(resolve, 200 * index));
             }
 
+            // Custom prompt for natural, curiosity-generating replies
+            const replyPrompt = `You're replying to a tweet on X/Twitter. Your goal is to add value AND subtly create curiosity.
+
+ORIGINAL TWEET by @${target.author || 'user'}:
+"${target.text}"
+
+YOUR CONTEXT (don't mention directly):
+- You use a tool that helps with: ${taskContext.project.description}
+- You understand these struggles: ${taskContext.project.painPoints}
+
+STRATEGY - CREATE CURIOSITY:
+The goal is to make readers think "wait, what tool/method is this person using?" 
+Share your RESULTS or EXPERIENCE in a way that makes people curious to ask you.
+NEVER mention the product name. NEVER say "I use a tool that..." 
+
+REPLY RULES:
+1. Share a genuine insight or personal experience related to the topic
+2. Hint at a method/system that helped you - but DON'T name it
+3. Be specific with results when possible ("cut my revenge trades by 80%")
+4. Sound like a regular trader sharing what worked for them
+5. Keep it SHORT - 1-2 sentences. Natural, conversational.
+6. NO emojis or max 1. More looks fake/spammy.
+7. End in a way that invites curiosity or follow-up
+
+EXAMPLES THAT CREATE CURIOSITY:
+- "Same struggle here until I started tracking my entry times. Patterns became obvious after a few weeks."
+- "The waiting game is real. I finally started logging when I take trades vs when I should - eye-opening data."
+- "This. Took me 6 months of journaling to realize my best setups are always between 9:50-10:10."
+
+BAD EXAMPLES (don't do this):
+- "Try TradeRonin!" (naming product = spam)
+- "I use an AI tool that..." (too obvious)
+- "Great post! 🔥📈" (no value, just noise)
+- "Have you tried journaling with [product]?" (direct pitch)
+
+Return ONLY your reply text. No quotes, no labels, just the reply.`;
+
             const replyContext: ContentTaskContext = {
               ...taskContext,
               workflowName: `Reply to ${target.author || 'user'}`,
-              workflowDescription: `Write a helpful, subtle reply to this tweet: "${target.text}"`,
+              workflowDescription: replyPrompt,
+              customPrompt: replyPrompt,
             };
 
             const draft = await provider.generateContent(replyContext, apiKey);
@@ -428,8 +466,11 @@ export class AIService extends BaseService {
       });
 
       try {
+        console.log('[FilterTargets] Getting provider:', providerId);
         const provider = await this.getProvider(providerId);
+        console.log('[FilterTargets] Got provider, getting API key...');
         const apiKey = await this.getUserApiKey(providerId);
+        console.log('[FilterTargets] Got API key, length:', apiKey?.length || 0);
 
         // We reuse generateContent but with a specific prompt
         const filterPrompt = `
@@ -467,10 +508,12 @@ Format: [{ "text": "...", "author": "...", "reason": "Why this is relevant to ${
 If NO posts are relevant, return an empty array: []
 `;
 
+        console.log('[FilterTargets] Calling AI with prompt length:', filterPrompt.length);
         const response = await provider.generateContent({
           ...taskContext,
           customPrompt: filterPrompt
         }, apiKey);
+        console.log('[FilterTargets] AI response received, content length:', response?.content?.length || 0);
 
         // Attempt to parse the JSON response
         let selectedItems = [];

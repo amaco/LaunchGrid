@@ -1,6 +1,8 @@
 
 import { createAdminClient } from '@/utils/supabase/admin'
 import { NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
+import { logUserAction } from '@/lib/events/audit-logger'
 
 export async function POST(request: Request) {
     const supabase = createAdminClient() // Bypass RLS
@@ -11,11 +13,18 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Missing fields" }, { status: 400 })
     }
 
+    // First, get the task to find the project_id and user context
+    const { data: task } = await supabase
+        .from('tasks')
+        .select('project_id, projects(user_id)')
+        .eq('id', taskId)
+        .single()
+
     // Update the task with the result from the extension
     const { error } = await supabase
         .from('tasks')
         .update({
-            status: 'review_needed', // Or completed? Review needed lets user see it.
+            status: 'review_needed',
             output_data: result,
             completed_at: new Date().toISOString()
         })
@@ -25,9 +34,27 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    // Attempt to revalidate the project page if possible, though strict dynamic paths are hard here.
-    // We can't easily know the project ID without fetching the task first.
-    // For now, accept that the UI needs a refresh or polling.
+    // Audit log the extension result
+    const userId = (task?.projects as any)?.user_id || 'extension'
+    await logUserAction(
+        {
+            organizationId: task?.project_id || 'unknown',
+            userId: userId,
+            requestId: `ext-${taskId}`,
+        },
+        'EXTENSION_SCAN_COMPLETE',
+        'task',
+        taskId,
+        {
+            itemCount: result?.found_items?.length || 0,
+            summary: result?.summary || 'No summary',
+        }
+    )
+
+    // Revalidate the project page so UI updates without manual refresh
+    if (task?.project_id) {
+        revalidatePath(`/dashboard/project/${task.project_id}`)
+    }
 
     return NextResponse.json({ success: true }, {
         headers: {
