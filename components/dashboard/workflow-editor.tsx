@@ -6,16 +6,17 @@ import { Plus, Trash2, ArrowUp, ArrowDown, Save, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const STEP_TYPES = [
-    { type: 'GENERATE_DRAFT', label: '✍️ Generate Content (Draft)' },
-    { type: 'GENERATE_OUTLINE', label: '📝 Generate Outline' },
-    { type: 'GENERATE_HOOKS', label: '🪝 Generate Viral Hooks' },
-    { type: 'SCAN_FEED', label: '🔍 Scan Social Feed' },
-    { type: 'SELECT_TARGETS', label: '🎯 Select High-Value Targets' },
-    { type: 'GENERATE_REPLIES', label: '🗣️ Draft AI Replies' },
-    { type: 'REVIEW_CONTENT', label: '👀 Human Review' },
-    { type: 'POST_API', label: '🚀 Publish to Platform' },
-    { type: 'POST_REPLY', label: '↩️ Publish Reply' },
-    { type: 'TRACK_ENGAGEMENT', label: '📊 Track Engagement' },
+    { type: 'GENERATE_DRAFT', label: '✍️ Generate Content (Draft)', tooltip: 'AI generates a content draft based on your project context' },
+    { type: 'GENERATE_OUTLINE', label: '📝 Generate Outline', tooltip: 'AI creates a structured outline for longer content pieces' },
+    { type: 'GENERATE_HOOKS', label: '🪝 Generate Viral Hooks', tooltip: 'AI generates attention-grabbing opening lines' },
+    { type: 'SCAN_FEED', label: '🔍 Scan Social Feed', tooltip: 'Extension scans X/Twitter for relevant conversations to engage with' },
+    { type: 'SELECT_TARGETS', label: '🎯 Select High-Value Targets', tooltip: 'AI filters and ranks the best targets for engagement' },
+    { type: 'GENERATE_REPLIES', label: '🗣️ Draft AI Replies', tooltip: 'AI crafts curiosity-generating replies (you review before posting)' },
+    { type: 'REVIEW_CONTENT', label: '👀 Human Review', tooltip: 'Pause for your approval before proceeding' },
+    { type: 'POST_EXTENSION', label: '📤 Publish via Extension', tooltip: 'Post content using the browser extension (you control when it posts)' },
+    { type: 'POST_REPLY', label: '↩️ Publish Reply', tooltip: 'Post reply using the browser extension (human-in-the-loop)' },
+    { type: 'TRACK_ENGAGEMENT', label: '📊 Track Engagement', tooltip: 'Monitor likes, replies, DMs from your posts' },
+    { type: 'POST_API', label: '🔌 Publish via API', tooltip: '⚠️ Coming soon - Direct API posting (requires platform credentials)' },
 ]
 
 export default function WorkflowEditor({ workflow, onClose }: { workflow: any, onClose: () => void }) {
@@ -82,6 +83,7 @@ export default function WorkflowEditor({ workflow, onClose }: { workflow: any, o
                             key={t.type}
                             onClick={() => handleAdd(t.type)}
                             disabled={isSaving}
+                            title={t.tooltip}
                             className="flex items-center gap-2 px-3 py-2 bg-accent/10 hover:bg-accent/20 text-accent/80 text-xs rounded transition-colors text-left"
                         >
                             <Plus className="w-3 h-3 shrink-0" />

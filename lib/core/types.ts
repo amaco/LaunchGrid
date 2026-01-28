@@ -112,6 +112,8 @@ export interface WorkflowConfig {
   maxRetries: number;
   timeout: number;
   schedule?: string; // cron expression
+  templateId?: string; // ID of template this workflow was created from
+  templateName?: string; // Name of the template for display
 }
 
 // ==========================================

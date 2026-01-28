@@ -10,6 +10,7 @@ import ContentPreview from '@/components/dashboard/content-preview'
 import RerunStepButton from '@/components/dashboard/rerun-step-button'
 import TaskStatusPoller from '@/components/dashboard/task-status-poller'
 import TaskContentEditor from '@/components/dashboard/task-content-editor'
+import PillarWorkflowsSection from '@/components/dashboard/pillar-workflows-section'
 
 // Define params type correctly for Next.js 15+
 type Props = {
@@ -60,22 +61,16 @@ export default async function ProjectPage({ params }: Props) {
 
             <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
 
-            {/* Channels Grid */}
+            {/* Channels with Workflows */}
             <section>
                 <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                    <LayoutGrid className="w-5 h-5 text-accent" /> Active Channels
+                    <LayoutGrid className="w-5 h-5 text-accent" /> Channels & Workflows
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {pillars.map((pillar: any) => (
-                        <div key={pillar.id} className="glass p-5 border-l-4 border-l-accent flex items-center justify-between group">
-                            <div>
-                                <span className="text-xs font-mono uppercase text-foreground/40 mb-1 block">{pillar.type}</span>
-                                <h3 className="font-bold text-white">{pillar.name}</h3>
-                            </div>
-                            <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
-                        </div>
-                    ))}
-                </div>
+                <PillarWorkflowsSection
+                    pillars={pillars}
+                    workflows={workflows}
+                    projectId={project.id}
+                />
             </section>
 
             {/* Workflows (LEGO Blocks) */}

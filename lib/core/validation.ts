@@ -140,6 +140,7 @@ export const stepTypeSchema = z.enum([
   'POST_API',
   'POST_REPLY',
   'POST_EXTENSION',
+  'TRACK_ENGAGEMENT',
   'EMAIL_SEQ',
   'COMMUNITY_SYNC',
   'WAIT_APPROVAL',
