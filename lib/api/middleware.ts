@@ -252,7 +252,13 @@ export function withAuth(handler: APIHandler, options?: {
 
       if (!rateLimit.allowed) {
         await logSecurityEvent(
-          { organizationId: 'system', userId: 'anonymous', requestId, ipAddress, userAgent },
+          {
+            organizationId: '00000000-0000-0000-0000-000000000000',
+            userId: '00000000-0000-0000-0000-000000000000',
+            requestId,
+            ipAddress,
+            userAgent
+          },
           'RATE_LIMIT_EXCEEDED',
           { endpoint: request.nextUrl.pathname }
         );
@@ -271,7 +277,13 @@ export function withAuth(handler: APIHandler, options?: {
 
         if (!auth) {
           await logSecurityEvent(
-            { organizationId: 'system', userId: 'anonymous', requestId, ipAddress, userAgent },
+            {
+              organizationId: '00000000-0000-0000-0000-000000000000',
+              userId: '00000000-0000-0000-0000-000000000000',
+              requestId,
+              ipAddress,
+              userAgent
+            },
             'AUTH_FAILED',
             { endpoint: request.nextUrl.pathname }
           );
@@ -289,8 +301,8 @@ export function withAuth(handler: APIHandler, options?: {
       } else {
         context = {
           requestId,
-          user: { id: 'anonymous' },
-          organizationId: 'public',
+          user: { id: '00000000-0000-0000-0000-000000000000' }, // Use valid UUID for anonymous
+          organizationId: '00000000-0000-0000-0000-000000000000', // Use valid UUID for public
           ipAddress,
           userAgent,
         };

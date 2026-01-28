@@ -32,12 +32,21 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
     .from('tasks')
     .select(`
       *,
-      step:steps(*)
+      step:steps(*),
+      project:projects(user_id)
     `)
     .eq('status', 'extension_queued')
     .order('created_at', { ascending: true })
     .limit(1)
     .single();
+
+  // DEBUG: Check if we are finding anything
+  if (!task) {
+    const { count } = await supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('status', 'extension_queued');
+    console.log(`[ExtensionDebug] No task returned. DB Total queued: ${count}`);
+  } else {
+    console.log(`[ExtensionDebug] Found task: ${task.id}`);
+  }
 
   if (error && error.code !== 'PGRST116') {
     console.error('Error fetching extension task:', error);
@@ -48,11 +57,13 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
     return successResponse({ task: null });
   }
 
+  const userId = (task.project as any)?.user_id || '00000000-0000-0000-0000-000000000000';
+
   // Log extension access
   await logSecurityEvent(
     {
-      organizationId: 'extension',
-      userId: context.user.id,
+      organizationId: userId,
+      userId: userId,
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
@@ -61,13 +72,39 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
     { taskId: task.id, stepType: task.step?.type }
   );
 
+  // Determine best start URL based on task type
+  let fallbackUrl = 'https://x.com/home';
+  const mergedConfig = {
+    ...task.step?.config,
+    ...(task.output_data || {})
+  };
+
+  if (task.step?.type === 'SCAN_FEED' && mergedConfig.keywords) {
+    // For Scan Feed, go directly to search
+    fallbackUrl = `https://x.com/search?q=${encodeURIComponent(mergedConfig.keywords)}&src=typed_query&f=live`;
+  }
+
   // Format for extension
   const payload = {
     taskId: task.id,
     type: task.step?.type,
     platform: 'twitter', // Derive from pillar in production
-    config: task.step?.config,
+    config: {
+      ...mergedConfig,
+      // Smart URL injection: Use existing, or smart fallback
+      url: (task.output_data as any)?.url || (task.output_data as any)?.targetUrl || (task.output_data as any)?.postUrl || fallbackUrl,
+      targetUrl: (task.output_data as any)?.url || (task.output_data as any)?.targetUrl || fallbackUrl,
+      postUrl: (task.output_data as any)?.url || fallbackUrl
+    }
   };
+
+  console.log('[ExtensionDebug] Serving task:', JSON.stringify({
+    id: task.id,
+    type: task.step?.type,
+    keywords: mergedConfig.keywords,
+    generatedUrl: fallbackUrl,
+    finalUrl: payload.config.url
+  }, null, 2));
 
   return successResponse({ task: payload });
 }
@@ -92,13 +129,15 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   // Verify task exists and is in correct state
   const { data: existingTask, error: fetchError } = await supabase
     .from('tasks')
-    .select('*')
+    .select('*, project:projects(user_id)')
     .eq('id', taskId)
     .single();
 
   if (fetchError || !existingTask) {
     return NextResponse.json({ error: 'Task not found' }, { status: 404 });
   }
+
+  const userId = (existingTask.project as any)?.user_id || '00000000-0000-0000-0000-000000000000';
 
   if (existingTask.status !== 'extension_queued') {
     return NextResponse.json(
@@ -132,8 +171,8 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
       result: result.success,
     },
     {
-      organizationId: 'extension',
-      userId: context.user.id,
+      organizationId: userId,
+      userId: userId,
       correlationId: context.requestId,
       source: 'extension',
     }
@@ -142,8 +181,8 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   // Log completion
   await logSecurityEvent(
     {
-      organizationId: 'extension',
-      userId: context.user.id,
+      organizationId: userId,
+      userId: userId,
       requestId: context.requestId,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,

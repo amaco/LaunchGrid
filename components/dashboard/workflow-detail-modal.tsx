@@ -7,9 +7,9 @@
  */
 
 import { useState, useTransition } from 'react'
-import { X, Play, Loader2, CheckCircle, AlertCircle, Clock, Trash2, Settings, ChevronDown, ChevronRight, RotateCcw } from 'lucide-react'
+import { X, Play, Loader2, CheckCircle, AlertCircle, Clock, Trash2, Settings, ChevronDown, ChevronRight, RotateCcw, ThumbsUp, XCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
-import { executeWorkflowAction, rerunStepAction } from '@/app/actions/execute-workflow'
+import { executeWorkflowAction, rerunStepAction, approveTaskAction, cancelTaskAction } from '@/app/actions/execute-workflow'
 import { deleteWorkflowAction } from '@/app/actions/manage-workflows'
 import WorkflowEditor from './workflow-editor'
 import ContentPreview from './content-preview'
@@ -66,6 +66,7 @@ export default function WorkflowDetailModal({
     const sortedSteps = workflow.steps?.sort((a, b) => a.position - b.position) || []
 
     // Find next step to run
+    // BLOCKS on REVIEW_CONTENT steps that need approval
     const getNextStepIndex = () => {
         for (let i = 0; i < sortedSteps.length; i++) {
             const step = sortedSteps[i]
@@ -73,8 +74,14 @@ export default function WorkflowDetailModal({
                 new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
             )?.[0]
 
+            // If no task exists, this is the next step
             if (!latestTask || latestTask.status === 'failed') {
                 return i
+            }
+
+            // BLOCK: If REVIEW_CONTENT step is in review_needed, can't proceed
+            if (step.type === 'REVIEW_CONTENT' && latestTask.status === 'review_needed') {
+                return -2 // Special value: blocked on review
             }
         }
         return -1 // All complete
@@ -255,27 +262,103 @@ export default function WorkflowDetailModal({
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
-                                                    {/* Re-run button for completed steps */}
-                                                    {latestTask && (latestTask.status === 'completed' || latestTask.status === 'review_needed') && (
+                                                    {/* Approve button for REVIEW_CONTENT steps */}
+                                                    {step.type === 'REVIEW_CONTENT' && latestTask?.status === 'review_needed' && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 startTransition(async () => {
                                                                     try {
-                                                                        await rerunStepAction(latestTask.id, workflow.id);
+                                                                        await approveTaskAction(latestTask.id);
                                                                         router.refresh();
                                                                     } catch (err: any) {
-                                                                        setError(err.message || 'Failed to rerun step');
+                                                                        setError(err.message || 'Failed to approve');
                                                                     }
                                                                 });
                                                             }}
                                                             disabled={isPending}
-                                                            className="p-1 hover:bg-white/10 rounded text-foreground/40 hover:text-white transition-colors"
-                                                            title="Re-run this step"
+                                                            className="px-2 py-1 bg-green-500/20 hover:bg-green-500/40 text-green-400 text-xs font-medium rounded transition-colors flex items-center gap-1"
+                                                            title="Approve content"
                                                         >
-                                                            <RotateCcw className="w-3 h-3" />
+                                                            <ThumbsUp className="w-3 h-3" /> Approve
                                                         </button>
                                                     )}
+                                                    {/* Approve & Post button for POST/REPLY steps */}
+                                                    {(step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY' || step.type === 'POST_API') && latestTask?.status === 'review_needed' && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                startTransition(async () => {
+                                                                    try {
+                                                                        await approveTaskAction(latestTask.id);
+                                                                        router.refresh();
+                                                                    } catch (err: any) {
+                                                                        setError(err.message || 'Failed to approve');
+                                                                    }
+                                                                });
+                                                            }}
+                                                            disabled={isPending}
+                                                            className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs font-medium rounded transition-colors flex items-center gap-1"
+                                                            title="Approve & Post"
+                                                        >
+                                                            <ThumbsUp className="w-3 h-3" /> Approve & Post
+                                                        </button>
+                                                    )}
+
+                                                    {/* Cancel/Ignore button for stuck tasks */}
+                                                    {latestTask && (latestTask.status === 'extension_queued' || latestTask.status === 'review_needed' || latestTask.status === 'failed') && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                startTransition(async () => {
+                                                                    try {
+                                                                        // We need to import this - will need to add import separately if not present
+                                                                        // Assuming cancelTaskAction is available 
+                                                                        await cancelTaskAction(latestTask.id);
+                                                                        router.refresh();
+                                                                    } catch (err: any) {
+                                                                        setError(err.message || 'Failed to cancel');
+                                                                    }
+                                                                });
+                                                            }}
+                                                            disabled={isPending}
+                                                            className="ml-1 px-2 py-1 bg-red-500/10 hover:bg-red-500/30 text-red-500 text-xs font-medium rounded transition-colors flex items-center gap-1"
+                                                            title="Ignore / Cancel Task"
+                                                        >
+                                                            <XCircle className="w-3 h-3" />
+                                                        </button>
+                                                    )}
+                                                    {/* Re-run button for completed, failed, or cancelled steps (not REVIEW_CONTENT) */}
+                                                    {latestTask && (
+                                                        latestTask.status === 'completed' ||
+                                                        latestTask.status === 'review_needed' ||
+                                                        latestTask.status === 'cancelled' ||
+                                                        latestTask.status === 'failed'
+                                                    ) &&
+                                                        step.type !== 'REVIEW_CONTENT' &&
+                                                        step.type !== 'POST_EXTENSION' &&
+                                                        step.type !== 'POST_REPLY' &&
+                                                        step.type !== 'POST_API' &&
+                                                        (idx === nextStepIndex - 1 || (nextStepIndex < 0 && idx === sortedSteps.length - 1) || latestTask.status === 'cancelled' || latestTask.status === 'failed') && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    startTransition(async () => {
+                                                                        try {
+                                                                            await rerunStepAction(latestTask.id, workflow.id);
+                                                                            router.refresh();
+                                                                        } catch (err: any) {
+                                                                            setError(err.message || 'Failed to rerun step');
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                disabled={isPending}
+                                                                className="p-1 hover:bg-white/10 rounded text-foreground/40 hover:text-white transition-colors"
+                                                                title="Re-run this step"
+                                                            >
+                                                                <RotateCcw className="w-3 h-3" />
+                                                            </button>
+                                                        )}
                                                     {isNext && !isPending && (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); handleRunStep(step.id); }}
@@ -326,8 +409,8 @@ export default function WorkflowDetailModal({
                     )}
                 </div>
 
-                {/* Footer with Run All button */}
-                {!showEditor && sortedSteps.length > 0 && nextStepIndex !== -1 && (
+                {/* Footer with action buttons */}
+                {!showEditor && sortedSteps.length > 0 && nextStepIndex >= 0 && (
                     <div className="p-4 border-t border-white/10 bg-white/5 shrink-0">
                         <button
                             onClick={handleRunNext}
@@ -346,6 +429,16 @@ export default function WorkflowDetailModal({
                                 </>
                             )}
                         </button>
+                    </div>
+                )}
+
+                {/* Blocked on review - subtle info message */}
+                {!showEditor && nextStepIndex === -2 && (
+                    <div className="p-4 border-t border-white/10 bg-amber-500/10 shrink-0 text-center">
+                        <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
+                            <AlertCircle className="w-4 h-4" />
+                            Waiting for your approval on Human Review step
+                        </div>
                     </div>
                 )}
 

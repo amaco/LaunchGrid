@@ -417,7 +417,25 @@ export async function approveTaskAction(taskId: string) {
     )
 
     const taskService = new TaskService(serviceContext)
-    const task = await taskService.approve(taskId)
+    const task = await taskService.getById(taskId)
+
+    // Check step type to see if we need special handling (e.g. extension queue)
+    const { data: step } = await supabase
+        .from('steps')
+        .select('type, config')
+        .eq('id', task.stepId)
+        .single()
+
+    if (step && (step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY')) {
+        // Queue for extension instead of completing
+        await taskService.queueForExtension(taskId, {
+            ...task.outputData,
+            approvedAt: new Date().toISOString()
+        })
+    } else {
+        // Standard approval
+        await taskService.approve(taskId)
+    }
 
     await logUserAction(
         {
@@ -660,6 +678,21 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
                 break
             }
 
+            case 'REVIEW_CONTENT':
+            case 'WAIT_APPROVAL':
+            case 'POST_API':
+            case 'POST_REPLY':
+            case 'POST_EXTENSION':
+            case 'TRACK_ENGAGEMENT': {
+                // For manual/review steps, just mark them for review again
+                await taskService.markForReview(task.id, previousStepOutput || {})
+                revalidatePath(`/dashboard/project/${project.id}`)
+                return {
+                    awaiting_approval: true,
+                    message: 'Reset for review',
+                }
+            }
+
             default:
                 throw new StepExecutionError(
                     `Unknown step type: ${step.type}`,
@@ -742,4 +775,47 @@ export async function updateTaskContentAction(
 
     revalidatePath(`/dashboard/project/${projectId}`)
     return { success: true, message: 'Content updated successfully' }
+}
+
+/**
+ * Cancel a task (manual override)
+ */
+export async function cancelTaskAction(taskId: string) {
+    const supabase = await createClient()
+    const requestId = nanoid()
+
+    // 1. Authenticate
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('Unauthorized')
+
+    // 2. Setup service
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+    const taskService = new TaskService(serviceContext)
+
+    // 3. Cancel task
+    await taskService.cancelTask(taskId, 'Cancelled by user')
+
+    // 4. Audit
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'CANCEL_TASK',
+        'task',
+        taskId,
+        {}
+    )
+
+    // 5. Get project ID to revalidate
+    const task = await taskService.getById(taskId)
+    revalidatePath(`/dashboard/project/${task.projectId}`)
+
+    return { success: true }
 }

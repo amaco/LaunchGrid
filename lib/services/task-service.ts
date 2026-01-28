@@ -23,14 +23,14 @@ export interface TaskTransition {
 }
 
 const TASK_TRANSITIONS: TaskTransition[] = [
-  { from: ['pending'], to: 'in_progress', action: 'start' },
-  { from: ['pending', 'in_progress'], to: 'extension_queued', action: 'queueForExtension' },
+  { from: ['pending', 'failed', 'review_needed', 'awaiting_approval'], to: 'in_progress', action: 'start' },
+  { from: ['pending', 'in_progress', 'review_needed'], to: 'extension_queued', action: 'queueForExtension' },
   { from: ['in_progress', 'extension_queued'], to: 'awaiting_approval', action: 'requestApproval' },
-  { from: ['in_progress', 'extension_queued'], to: 'review_needed', action: 'markForReview' },
+  { from: ['in_progress', 'extension_queued', 'failed', 'cancelled'], to: 'review_needed', action: 'markForReview' },
   { from: ['in_progress', 'awaiting_approval', 'review_needed'], to: 'completed', action: 'complete' },
   { from: ['in_progress', 'extension_queued', 'awaiting_approval'], to: 'failed', action: 'fail' },
   { from: ['failed', 'cancelled'], to: 'pending', action: 'retry' },
-  { from: ['pending', 'in_progress', 'awaiting_approval', 'review_needed'], to: 'cancelled', action: 'cancel' },
+  { from: ['pending', 'in_progress', 'awaiting_approval', 'review_needed', 'extension_queued'], to: 'cancelled', action: 'cancel' },
   { from: ['completed', 'failed', 'review_needed', 'awaiting_approval', 'cancelled'], to: 'pending', action: 'reset' },
 ];
 
@@ -301,6 +301,14 @@ export class TaskService extends BaseService {
       );
     }
 
+    return this.updateStatus(taskId, 'cancelled', undefined, reason);
+  }
+
+  /**
+   * Cancel task
+   */
+  async cancelTask(taskId: string, reason: string = 'User cancelled'): Promise<Task> {
+    const task = await this.getById(taskId);
     return this.updateStatus(taskId, 'cancelled', undefined, reason);
   }
 

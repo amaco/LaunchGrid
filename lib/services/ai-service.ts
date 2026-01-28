@@ -395,7 +395,12 @@ Return ONLY your reply text. No quotes, no labels, just the reply.`;
             };
 
             const draft = await provider.generateContent(replyContext, apiKey);
-            return { targetId: target.id, reply: draft.content };
+            return {
+              targetId: target.id,
+              reply: draft.content,
+              url: (target as any).url, // Pass through URL for extension
+              author: target.author
+            };
           })
         );
 
