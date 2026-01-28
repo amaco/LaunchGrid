@@ -83,7 +83,7 @@ export interface Pillar {
   createdAt: Date;
 }
 
-export type PillarType = 
+export type PillarType =
   | 'social_organic'
   | 'community'
   | 'paid_ads'
@@ -140,6 +140,7 @@ export type StepType =
   | 'POST_API'
   | 'POST_REPLY'
   | 'POST_EXTENSION'
+  | 'TRACK_ENGAGEMENT'
   | 'EMAIL_SEQ'
   | 'COMMUNITY_SYNC'
   | 'WAIT_APPROVAL'

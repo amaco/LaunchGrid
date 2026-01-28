@@ -15,6 +15,7 @@ const STEP_TYPES = [
     { type: 'REVIEW_CONTENT', label: '👀 Human Review' },
     { type: 'POST_API', label: '🚀 Publish to Platform' },
     { type: 'POST_REPLY', label: '↩️ Publish Reply' },
+    { type: 'TRACK_ENGAGEMENT', label: '📊 Track Engagement' },
 ]
 
 export default function WorkflowEditor({ workflow, onClose }: { workflow: any, onClose: () => void }) {

@@ -304,6 +304,45 @@ export async function executeWorkflowAction(workflowId: string) {
                 }
             }
 
+            case 'TRACK_ENGAGEMENT': {
+                // Create engagement tracking records for posted content
+                const postedContent = previousStepOutput?.replies || previousStepOutput?.posted || []
+
+                // If we have posted content, create tracking records
+                if (Array.isArray(postedContent) && postedContent.length > 0) {
+                    const trackingRecords = postedContent.map((item: any) => ({
+                        id: `eng_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                        project_id: project.id,
+                        task_id: task.id,
+                        platform: 'twitter',
+                        post_type: item.type || 'reply',
+                        post_url: item.url || null,
+                        original_target_author: item.targetAuthor || item.author || null,
+                        original_post_text: item.targetText || item.text || null,
+                        our_reply_text: item.reply || item.content || null,
+                        status: item.url ? 'posted' : 'pending',
+                        posted_at: item.postedAt || new Date().toISOString(),
+                    }))
+
+                    const { error } = await supabase
+                        .from('engagement_metrics')
+                        .insert(trackingRecords)
+
+                    if (error) {
+                        console.error('[Engagement] Failed to create tracking records:', error)
+                    }
+                }
+
+                const trackingCount = Array.isArray(postedContent) ? postedContent.length : 0
+                resultData = {
+                    title: 'Engagement Tracking Started',
+                    message: `Tracking ${trackingCount} posted items`,
+                    tracking_count: trackingCount,
+                    instruction: 'Check back later to see engagement stats. You can also manually update metrics.',
+                }
+                break
+            }
+
             default:
                 throw new StepExecutionError(
                     `Step type ${targetStep.type} not implemented yet`,
