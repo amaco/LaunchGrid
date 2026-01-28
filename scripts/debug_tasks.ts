@@ -20,6 +20,8 @@ async function main() {
             status, 
             step_id, 
             created_at,
+            output_data,
+            error_message,
             step:steps(type, workflow_id)
         `)
         .order('created_at', { ascending: false });
@@ -30,15 +32,15 @@ async function main() {
     }
 
     tasks.forEach(t => {
-        console.log(`[${t.status}] ${t.step?.type} (ID: ${t.id}) - Created: ${t.created_at}`);
+        console.log(`[${t.status}] ${t.step?.type} (ID: ${t.id})`);
+        if (t.output_data) {
+            console.log('Output:', JSON.stringify(t.output_data, null, 2));
+        }
+        if (t.error_message) {
+            console.log('Error:', t.error_message);
+        }
+        console.log('---');
     });
-
-    console.log('--- EXTENSION QUEUED COUNT ---');
-    const { count } = await supabase
-        .from('tasks')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'extension_queued');
-    console.log(`Count: ${count}`);
 }
 
 main();

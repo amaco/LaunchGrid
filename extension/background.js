@@ -6,7 +6,7 @@ const API_URL = 'http://localhost:3000/api/v1/extension';
 // We attempt to use chrome.alarms, but fallback to setTimeout if API is missing (e.g., permission glitch)
 try {
     if (chrome.alarms) {
-        chrome.alarms.create('pollTasks', { periodInMinutes: 0.1 });
+        chrome.alarms.create('pollTasks', { periodInMinutes: 0.5 }); // 30 seconds
         chrome.alarms.onAlarm.addListener((alarm) => {
             if (alarm.name === 'pollTasks') checkTasks();
         });
@@ -19,7 +19,7 @@ try {
     // Fallback Loop
     (function pollLoop() {
         checkTasks();
-        setTimeout(pollLoop, 6000); // 6 seconds
+        setTimeout(pollLoop, 30000); // 30 seconds
     })();
 }
 
@@ -40,6 +40,11 @@ async function checkTasks() {
 }
 
 async function executeTask(task) {
+    console.log("[LaunchGrid] Executing task:", task.id, "Type:", task.type);
+
+    // Immediate acknowledgement
+    reportProgress(task.taskId, "Extension acknowledged task...");
+
     const patterns = task.platform === 'twitter'
         ? ['*://x.com/*', '*://twitter.com/*']
         : ['*://linkedin.com/*'];
@@ -48,11 +53,13 @@ async function executeTask(task) {
 
     let activeTab;
     if (tabs.length === 0) {
-        console.log("No active tab found. Creating one for:", task.platform);
-        const url = task.platform === 'twitter' ? 'https://x.com/home' : 'https://linkedin.com';
-        activeTab = await chrome.tabs.create({ url, active: false, pinned: true });
+        reportProgress(task.taskId, "No X tab found, opening new one...");
+        // Use URL from task config if available, fallback to home
+        const url = task.config?.url || (task.platform === 'twitter' ? 'https://x.com/home' : 'https://linkedin.com');
+        activeTab = await chrome.tabs.create({ url, active: true }); // Make it active so user sees it
 
-        // Wait for tab to load before sending message
+        reportProgress(task.taskId, "Waiting for page to load...");
+        // Wait for tab to load
         await new Promise(resolve => {
             const listener = (tabId, changeInfo) => {
                 if (tabId === activeTab.id && changeInfo.status === 'complete') {
@@ -64,6 +71,7 @@ async function executeTask(task) {
         });
     } else {
         activeTab = tabs[0];
+        reportProgress(task.taskId, "Found active X tab, sending command...");
     }
 
     // Send message to Content Script
@@ -74,17 +82,36 @@ async function executeTask(task) {
     }, (response) => {
         if (chrome.runtime.lastError) {
             console.error("Msg Error:", chrome.runtime.lastError);
+            reportProgress(task.taskId, "Communication error: Please refresh your X.com tab!");
+            // No longer auto-failing here. Let the user refresh or wait. 
+            // Sometimes the script eventually picks up the command.
+        } else {
+            console.log("Command sent successfully to tab", activeTab.id);
         }
     });
 }
 
-// Listen for results coming back from Content Script
+// Listen for results or progress coming back from Content Script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.type === 'TASK_RESULT') {
-        // Send result back to Brain
         reportResult(request.taskId, request.data);
+    } else if (request.type === 'TASK_PROGRESS') {
+        reportProgress(request.taskId, request.progress);
     }
 });
+
+async function reportProgress(taskId, progress) {
+    try {
+        await fetch(`${API_URL}/tasks`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId, progress })
+        });
+        console.log("Progress reported for", taskId, ":", progress);
+    } catch (e) {
+        console.warn("Failed to report progress", e);
+    }
+}
 
 async function reportResult(taskId, resultData) {
     try {
@@ -94,7 +121,7 @@ async function reportResult(taskId, resultData) {
             body: JSON.stringify({
                 taskId,
                 result: {
-                    success: true,
+                    success: !resultData.error,
                     data: resultData
                 }
             })

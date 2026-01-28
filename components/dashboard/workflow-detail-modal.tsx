@@ -6,7 +6,7 @@
  * Full workflow management: view steps, run workflow, see outputs, edit blocks.
  */
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useEffect } from 'react'
 import { X, Play, Loader2, CheckCircle, AlertCircle, Clock, Trash2, Settings, ChevronDown, ChevronRight, RotateCcw, ThumbsUp, XCircle } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { executeWorkflowAction, rerunStepAction, approveTaskAction, cancelTaskAction } from '@/app/actions/execute-workflow'
@@ -64,6 +64,23 @@ export default function WorkflowDetailModal({
     const router = useRouter()
 
     const sortedSteps = workflow.steps?.sort((a, b) => a.position - b.position) || []
+
+    // Polling logic: automatically refresh if any task is in progress
+    useEffect(() => {
+        const hasActiveTasks = sortedSteps.some(step => {
+            const latestTask = step.tasks?.sort((a, b) =>
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )?.[0]
+            return latestTask && (latestTask.status === 'in_progress' || latestTask.status === 'extension_queued')
+        })
+
+        if (hasActiveTasks) {
+            const interval = setInterval(() => {
+                router.refresh()
+            }, 3000) // Poll every 3 seconds
+            return () => clearInterval(interval)
+        }
+    }, [workflow, sortedSteps, router])
 
     // Find next step to run
     // BLOCKS on REVIEW_CONTENT steps that need approval
@@ -248,13 +265,13 @@ export default function WorkflowDetailModal({
                                                         {STEP_LABELS[step.type] || step.type}
                                                     </div>
                                                     {latestTask?.status && (
-                                                        <div className="text-xs text-foreground/40">
+                                                        <div className="text-xs text-foreground/40 font-medium">
                                                             {latestTask.status === 'review_needed' && step.type === 'REVIEW_CONTENT'
                                                                 ? 'Waiting for your approval'
                                                                 : latestTask.status === 'review_needed'
                                                                     ? 'Completed (data ready)'
-                                                                    : latestTask.status === 'extension_queued'
-                                                                        ? 'Extension action pending'
+                                                                    : latestTask.status === 'extension_queued' || latestTask.status === 'in_progress'
+                                                                        ? (latestTask.output_data?.progress_info || 'Action pending...')
                                                                         : latestTask.status === 'completed'
                                                                             ? 'Completed'
                                                                             : latestTask.status}
@@ -305,15 +322,13 @@ export default function WorkflowDetailModal({
                                                         </button>
                                                     )}
 
-                                                    {/* Cancel/Ignore button for stuck tasks */}
-                                                    {latestTask && (latestTask.status === 'extension_queued' || latestTask.status === 'review_needed' || latestTask.status === 'failed') && (
+                                                    {/* Cancel/Ignore button for stuck tasks - Enabled for ALL active/stuck states */}
+                                                    {latestTask && (latestTask.status === 'extension_queued' || latestTask.status === 'review_needed' || latestTask.status === 'failed' || latestTask.status === 'in_progress') && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 startTransition(async () => {
                                                                     try {
-                                                                        // We need to import this - will need to add import separately if not present
-                                                                        // Assuming cancelTaskAction is available 
                                                                         await cancelTaskAction(latestTask.id);
                                                                         router.refresh();
                                                                     } catch (err: any) {
@@ -323,7 +338,7 @@ export default function WorkflowDetailModal({
                                                             }}
                                                             disabled={isPending}
                                                             className="ml-1 px-2 py-1 bg-red-500/10 hover:bg-red-500/30 text-red-500 text-xs font-medium rounded transition-colors flex items-center gap-1"
-                                                            title="Ignore / Cancel Task"
+                                                            title="Stop / Cancel Task"
                                                         >
                                                             <XCircle className="w-3 h-3" />
                                                         </button>

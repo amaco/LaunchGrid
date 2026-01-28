@@ -23,15 +23,15 @@ export interface TaskTransition {
 }
 
 const TASK_TRANSITIONS: TaskTransition[] = [
-  { from: ['pending', 'failed', 'review_needed', 'awaiting_approval'], to: 'in_progress', action: 'start' },
+  { from: ['pending', 'failed', 'review_needed', 'awaiting_approval', 'extension_queued', 'cancelled'], to: 'in_progress', action: 'start' },
   { from: ['pending', 'in_progress', 'review_needed'], to: 'extension_queued', action: 'queueForExtension' },
   { from: ['in_progress', 'extension_queued'], to: 'awaiting_approval', action: 'requestApproval' },
   { from: ['in_progress', 'extension_queued', 'failed', 'cancelled'], to: 'review_needed', action: 'markForReview' },
   { from: ['in_progress', 'awaiting_approval', 'review_needed'], to: 'completed', action: 'complete' },
-  { from: ['in_progress', 'extension_queued', 'awaiting_approval'], to: 'failed', action: 'fail' },
+  { from: ['in_progress', 'extension_queued', 'awaiting_approval', 'pending'], to: 'failed', action: 'fail' },
   { from: ['failed', 'cancelled'], to: 'pending', action: 'retry' },
-  { from: ['pending', 'in_progress', 'awaiting_approval', 'review_needed', 'extension_queued'], to: 'cancelled', action: 'cancel' },
-  { from: ['completed', 'failed', 'review_needed', 'awaiting_approval', 'cancelled'], to: 'pending', action: 'reset' },
+  { from: ['pending', 'in_progress', 'awaiting_approval', 'review_needed', 'extension_queued', 'failed', 'completed'], to: 'cancelled', action: 'cancel' },
+  { from: ['completed', 'failed', 'review_needed', 'awaiting_approval', 'cancelled', 'in_progress', 'extension_queued', 'pending'], to: 'pending', action: 'reset' },
 ];
 
 // ==========================================

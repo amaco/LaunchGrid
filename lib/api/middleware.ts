@@ -56,7 +56,7 @@ const RATE_LIMIT_CONFIG = {
   default: { requests: 100, windowMs: 60000 }, // 100 req/min
   auth: { requests: 10, windowMs: 60000 }, // 10 req/min for auth endpoints
   ai: { requests: 20, windowMs: 60000 }, // 20 req/min for AI endpoints
-  extension: { requests: 60, windowMs: 60000 }, // 60 req/min for extension
+  extension: { requests: 300, windowMs: 60000 }, // 300 req/min for extension
 };
 
 function getRateLimitKey(ip: string, endpoint: string): string {
