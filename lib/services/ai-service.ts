@@ -509,9 +509,9 @@ Analyze these posts:
 ${JSON.stringify(items.slice(0, 20), null, 2)}
 
 Return ONLY a valid JSON array (max 5 items). If fewer than 5 are relevant, return fewer.
-Format: [{ "text": "...", "author": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
-If NO posts are relevant, return an empty array: []
-`;
+            Format: [{ "id": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
+            If NO posts are relevant, return an empty array: []
+            `;
 
         console.log('[FilterTargets] Calling AI with prompt length:', filterPrompt.length);
         const response = await provider.generateContent({
@@ -521,7 +521,7 @@ If NO posts are relevant, return an empty array: []
         console.log('[FilterTargets] AI response received, content length:', response?.content?.length || 0);
 
         // Attempt to parse the JSON response
-        let selectedItems = [];
+        let selectedItems: Array<any> = [];
         try {
           // Robust JSON extraction: Find the first '[' and last ']'
           const jsonString = response.content;
@@ -530,7 +530,22 @@ If NO posts are relevant, return an empty array: []
 
           if (startIndex !== -1 && endIndex !== -1) {
             const cleanJson = jsonString.substring(startIndex, endIndex + 1);
-            selectedItems = JSON.parse(cleanJson);
+            const parsedItems = JSON.parse(cleanJson);
+
+            // Map back to original items to preserve URL/ID/Metadata
+            selectedItems = parsedItems.map((selected: any) => {
+              // Find original item by ID (robust string comparison)
+              const original = items.find(i => String((i as any).id) === String(selected.id));
+              if (!original) {
+                console.warn('[FilterTargets] AI selected generic/invalid ID:', selected.id);
+                return null;
+              }
+              return {
+                ...original,
+                reason: selected.reason
+              };
+            }).filter((item: any) => item !== null);
+
           } else {
             throw new Error("No JSON array found in response");
           }

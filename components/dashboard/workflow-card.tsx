@@ -109,8 +109,13 @@ export default function WorkflowCard({ workflow, projectId }: WorkflowCardProps)
                             )?.[0]
 
                             let bgColor = 'bg-white/10' // not started
-                            if (latestTask?.status === 'completed') bgColor = 'bg-green-500'
-                            if (latestTask?.status === 'review_needed') bgColor = 'bg-amber-500'
+
+                            // Visual logic: review_needed is 'green/done' unless it's an actual Review step
+                            const isActuallyComplete = latestTask?.status === 'completed' ||
+                                (latestTask?.status === 'review_needed' && step.type !== 'REVIEW_CONTENT')
+
+                            if (isActuallyComplete) bgColor = 'bg-green-500'
+                            else if (latestTask?.status === 'review_needed' && step.type === 'REVIEW_CONTENT') bgColor = 'bg-amber-500'
                             if (latestTask?.status === 'in_progress' || latestTask?.status === 'extension_queued') bgColor = 'bg-blue-500 animate-pulse'
                             if (latestTask?.status === 'failed') bgColor = 'bg-red-500'
                             if (latestTask?.status === 'cancelled') bgColor = 'bg-gray-500'

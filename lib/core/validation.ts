@@ -219,6 +219,13 @@ export const extensionResultSchema = z.object({
       url: z.string().optional(),
       engagement: z.number().optional(),
     })).optional(),
+    found_items: z.array(z.object({
+      id: z.string(),
+      text: z.string(),
+      author: z.string().optional(),
+      url: z.string().optional(),
+      engagement: z.record(z.string(), z.any()).optional(),
+    })).optional(),
   }),
   metadata: z.object({
     executedAt: z.string().datetime(),

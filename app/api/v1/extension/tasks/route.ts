@@ -29,10 +29,10 @@ export const revalidate = 0;
 const CONFIG = {
   // Zombie task recovery - reduced from 5 minutes to 2 minutes
   ZOMBIE_THRESHOLD_MS: 2 * 60 * 1000,  // 2 minutes
-  
+
   // Heartbeat threshold - task is considered stale if no heartbeat in this time
   HEARTBEAT_THRESHOLD_MS: 45 * 1000,  // 45 seconds
-  
+
   // Maximum tasks to return for debugging
   DEBUG_TASK_LIMIT: 5,
 };
@@ -98,12 +98,12 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
 
   if (!zombieCheckError && zombieTasks && zombieTasks.length > 0) {
     console.log(`[Extension API] Found ${zombieTasks.length} zombie task(s), recovering...`);
-    
+
     for (const zombie of zombieTasks) {
       // Check if there's been recent heartbeat
       const lastHeartbeat = (zombie.output_data as any)?.last_heartbeat;
       const heartbeatThreshold = new Date(Date.now() - CONFIG.HEARTBEAT_THRESHOLD_MS).toISOString();
-      
+
       // Only reset if no recent heartbeat
       if (!lastHeartbeat || lastHeartbeat < heartbeatThreshold) {
         await supabase
@@ -117,7 +117,7 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
             }
           })
           .eq('id', zombie.id);
-        
+
         console.log(`[Extension API] Recovered zombie task: ${zombie.id}`);
       }
     }
@@ -148,9 +148,9 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
       .from('tasks')
       .select('*', { count: 'exact', head: true })
       .eq('status', 'extension_queued');
-    
+
     console.log(`[Extension API] No task found. Total queued in DB: ${count || 0}`);
-    
+
     return withCORS(NextResponse.json({ task: null }));
   }
 
@@ -195,7 +195,7 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
   // 5. Build response payload
   const stepConfig = task.step?.config || {};
   const taskOutputData = task.output_data || {};
-  
+
   // Merge configs with priority: output_data > step config
   const mergedConfig = {
     ...stepConfig,
@@ -239,7 +239,7 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
 
 async function handleSubmitResult(request: NextRequest, context: APIContext) {
   const body = await request.json();
-  
+
   console.log(`[Extension API] POST /tasks - Result submission:`, {
     taskId: body.taskId,
     success: body.result?.success,
@@ -253,7 +253,11 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   // Verify task exists
   const { data: existingTask, error: fetchError } = await supabase
     .from('tasks')
-    .select('*, project:projects(user_id)')
+    .select(`
+      *,
+      step:steps(*),
+      project:projects(user_id)
+    `)
     .eq('id', taskId)
     .single();
 
@@ -275,8 +279,17 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   }
 
   // Determine new status
-  const newStatus = result.success ? 'review_needed' : 'failed';
-  
+  // Posting steps (POST_REPLY, POST_EXTENSION, POST_API) move directly to 'completed' 
+  // because the "human loop" (Approval) already happened before the extension was queued.
+  const stepType = existingTask.step?.type || (existingTask as any).steps?.type;
+  const isPostAction = ['POST_REPLY', 'POST_EXTENSION', 'POST_API'].includes(stepType);
+
+  console.log(`[Extension API] Task ${taskId} type: ${stepType}, isPostAction: ${isPostAction}`);
+
+  const newStatus = result.success
+    ? (isPostAction ? 'completed' : 'review_needed')
+    : 'failed';
+
   // Build output data
   const outputData = {
     ...(result.data || {}),
@@ -307,7 +320,7 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
     {
       source: 'extension',
       success: result.success,
-      itemCount: result.data?.found_items?.length || 0,
+      itemCount: (result.data as any)?.found_items?.length || 0,
     },
     {
       organizationId: userId,
@@ -366,8 +379,8 @@ async function handleUpdateProgress(request: NextRequest, context: APIContext) {
   // Only update if task is in progress
   if (task.status !== 'in_progress' && task.status !== 'extension_queued') {
     console.warn(`[Extension API] Ignoring progress for task in '${task.status}' state`);
-    return withCORS(NextResponse.json({ 
-      warning: `Task is in '${task.status}' state, progress ignored` 
+    return withCORS(NextResponse.json({
+      warning: `Task is in '${task.status}' state, progress ignored`
     }));
   }
 
@@ -382,7 +395,8 @@ async function handleUpdateProgress(request: NextRequest, context: APIContext) {
   const { error: updateError } = await supabase
     .from('tasks')
     .update({ output_data: newOutputData })
-    .eq('id', taskId);
+    .eq('id', taskId)
+    .in('status', ['in_progress', 'extension_queued']);
 
   if (updateError) {
     console.error(`[Extension API] Failed to update progress:`, updateError);
