@@ -2,13 +2,41 @@
 import React from 'react';
 
 interface ContentPreviewProps {
-    content: string;
+    content: any;
     title?: string;
     type?: string;
 }
 
 export default function ContentPreview({ content, title, type }: ContentPreviewProps) {
     if (!content) return null;
+
+    // Handle Batch Post Results
+    if (typeof content === 'object' && content !== null && (content as any).results && (content as any).summary) {
+        const batch = content as any;
+        return (
+            <div className="mt-2 bg-white/5 p-4 rounded-xl border border-white/10 text-xs shadow-inner">
+                <div className="flex items-center gap-2 font-bold text-white mb-3 text-sm border-b border-white/5 pb-2 uppercase tracking-tight">
+                    <span className="text-blue-400">Post Result</span>
+                    <span className="text-foreground/40 ml-auto">{batch.summary}</span>
+                </div>
+                <div className="space-y-2">
+                    {batch.results.map((res: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between bg-white/5 p-2 rounded border border-white/5 group">
+                            <div className="flex items-center gap-2 truncate">
+                                <div className={`w-1.5 h-1.5 rounded-full ${res.success ? 'bg-green-500' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'}`} />
+                                <span className="text-foreground/60 truncate group-hover:text-blue-400 transition-colors">
+                                    {res.url.split('/status/')[1] || res.url}
+                                </span>
+                            </div>
+                            <div className={`text-[10px] px-1.5 py-0.5 rounded ${res.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+                                {res.success ? 'Posted' : 'Failed'}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
 
     // Handle Array content (e.g. found_items)
     if (Array.isArray(content)) {

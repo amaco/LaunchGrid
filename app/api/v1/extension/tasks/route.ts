@@ -253,7 +253,11 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   // Verify task exists
   const { data: existingTask, error: fetchError } = await supabase
     .from('tasks')
-    .select('*, project:projects(user_id)')
+    .select(`
+      *,
+      step:steps(*),
+      project:projects(user_id)
+    `)
     .eq('id', taskId)
     .single();
 
@@ -275,7 +279,12 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   }
 
   // Determine new status
-  const newStatus = result.success ? 'review_needed' : 'failed';
+  // Posting steps (POST_REPLY, POST_EXTENSION, POST_API) move directly to 'completed' 
+  // because the "human loop" (Approval) already happened before the extension was queued.
+  const isPostAction = ['POST_REPLY', 'POST_EXTENSION', 'POST_API'].includes(existingTask.step?.type);
+  const newStatus = result.success
+    ? (isPostAction ? 'completed' : 'review_needed')
+    : 'failed';
 
   // Build output data
   const outputData = {
@@ -307,7 +316,7 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
     {
       source: 'extension',
       success: result.success,
-      itemCount: result.data?.found_items?.length || 0,
+      itemCount: (result.data as any)?.found_items?.length || 0,
     },
     {
       organizationId: userId,

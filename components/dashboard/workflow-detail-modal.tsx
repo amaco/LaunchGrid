@@ -275,13 +275,13 @@ export default function WorkflowDetailModal({
                                                     {latestTask?.status && (
                                                         <div className="text-xs text-foreground/40 font-medium">
                                                             {latestTask.status === 'review_needed' && step.type === 'REVIEW_CONTENT'
-                                                                ? 'Waiting for your approval'
+                                                                ? 'Awaiting your review'
                                                                 : latestTask.status === 'review_needed'
-                                                                    ? 'Completed (data ready)'
+                                                                    ? 'Approved & Ready for X'
                                                                     : latestTask.status === 'extension_queued' || latestTask.status === 'in_progress'
                                                                         ? (latestTask.output_data?.progress_info || 'Action pending...')
                                                                         : latestTask.status === 'completed'
-                                                                            ? 'Completed'
+                                                                            ? 'Success'
                                                                             : latestTask.status}
                                                         </div>
                                                     )}
@@ -309,26 +309,27 @@ export default function WorkflowDetailModal({
                                                         </button>
                                                     )}
                                                     {/* Approve & Post button for POST/REPLY steps */}
-                                                    {(step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY' || step.type === 'POST_API') && latestTask?.status === 'review_needed' && (
-                                                        <button
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                startTransition(async () => {
-                                                                    try {
-                                                                        await approveTaskAction(latestTask.id);
-                                                                        router.refresh();
-                                                                    } catch (err: any) {
-                                                                        setError(err.message || 'Failed to approve');
-                                                                    }
-                                                                });
-                                                            }}
-                                                            disabled={isPending}
-                                                            className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs font-medium rounded transition-colors flex items-center gap-1"
-                                                            title="Approve & Post"
-                                                        >
-                                                            <ThumbsUp className="w-3 h-3" /> Approve & Post
-                                                        </button>
-                                                    )}
+                                                    {(step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY' || step.type === 'POST_API') &&
+                                                        latestTask?.status === 'review_needed' && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    startTransition(async () => {
+                                                                        try {
+                                                                            await approveTaskAction(latestTask.id);
+                                                                            router.refresh();
+                                                                        } catch (err: any) {
+                                                                            setError(err.message || 'Failed to approve');
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                disabled={isPending}
+                                                                className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs font-medium rounded transition-colors flex items-center gap-1"
+                                                                title="Approve & Post"
+                                                            >
+                                                                <ThumbsUp className="w-3 h-3" /> Approve & Post
+                                                            </button>
+                                                        )}
 
                                                     {/* Cancel/Ignore button for stuck tasks - Enabled only for RUNNING/QUEUED states */}
                                                     {latestTask && (latestTask.status === 'extension_queued' || latestTask.status === 'in_progress') && (
