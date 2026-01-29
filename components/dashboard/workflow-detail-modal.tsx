@@ -322,8 +322,8 @@ export default function WorkflowDetailModal({
                                                         </button>
                                                     )}
 
-                                                    {/* Cancel/Ignore button for stuck tasks - Enabled for ALL active/stuck states */}
-                                                    {latestTask && (latestTask.status === 'extension_queued' || latestTask.status === 'review_needed' || latestTask.status === 'failed' || latestTask.status === 'in_progress') && (
+                                                    {/* Cancel/Ignore button for stuck tasks - Enabled only for RUNNING/QUEUED states */}
+                                                    {latestTask && (latestTask.status === 'extension_queued' || latestTask.status === 'in_progress') && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
