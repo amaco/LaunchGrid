@@ -19,9 +19,64 @@ export default function EditableContentPreview({
     onSave
 }: EditableContentPreviewProps) {
     const [isEditing, setIsEditing] = useState(false)
-    const [editedContent, setEditedContent] = useState<string>(
-        typeof content === 'string' ? content : JSON.stringify(content, null, 2)
+    // Helper to strip surrounding quotes if present (fixes over-stringified AI output)
+    const cleanString = (str: any): string => {
+        if (typeof str !== 'string') return str
+        let s = str.trim()
+
+        // Max 3 passes to handle double-escaped or nested quotes
+        for (let i = 0; i < 3; i++) {
+            let changed = false
+
+            // Standard quotes
+            if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+                s = s.slice(1, -1).replace(/\\"/g, '"')
+                changed = true
+            }
+            // Single quotes
+            else if (s.length >= 2 && s.startsWith("'") && s.endsWith("'")) {
+                s = s.slice(1, -1).replace(/\\'/g, "'")
+                changed = true
+            }
+            // Smart quotes
+            else if (s.length >= 2 && (s.startsWith('“') || s.startsWith('”')) && (s.endsWith('”') || s.endsWith('“'))) {
+                s = s.slice(1, -1)
+                changed = true
+            }
+
+            if (!changed) break
+            s = s.trim()
+        }
+        return s
+    }
+
+    const initializeContent = (c: any) => {
+        if (typeof c === 'string') return cleanString(c)
+        if (Array.isArray(c)) {
+            return c.map(item => {
+                if (typeof item === 'object' && item !== null) {
+                    const newItem = { ...item }
+                    if (newItem.reply) newItem.reply = cleanString(newItem.reply)
+                    if (newItem.text) newItem.text = cleanString(newItem.text)
+                    if (newItem.content) newItem.content = cleanString(newItem.content)
+                    return newItem
+                }
+                return cleanString(item)
+            })
+        }
+        return JSON.stringify(c, null, 2)
+    }
+
+    const [editedContent, setEditedContent] = useState<string | any[]>(
+        initializeContent(content)
     )
+
+    // Keep state in sync with props when not editing
+    React.useEffect(() => {
+        if (!isEditing) {
+            setEditedContent(initializeContent(content))
+        }
+    }, [content, isEditing])
     const [isSaving, setIsSaving] = useState(false)
 
     if (!content) return null
@@ -31,12 +86,14 @@ export default function EditableContentPreview({
         try {
             let parsedContent = editedContent
 
-            // Try to parse as JSON if it looks like JSON
-            if (editedContent.trim().startsWith('[') || editedContent.trim().startsWith('{')) {
-                try {
-                    parsedContent = JSON.parse(editedContent)
-                } catch {
-                    // Keep as string if not valid JSON
+            // If it's a string, try to parse it (unless it was originally a string)
+            if (typeof editedContent === 'string' && typeof content !== 'string') {
+                if (editedContent.trim().startsWith('[') || editedContent.trim().startsWith('{')) {
+                    try {
+                        parsedContent = JSON.parse(editedContent)
+                    } catch {
+                        // Keep as string if not valid JSON
+                    }
                 }
             }
 
@@ -52,11 +109,29 @@ export default function EditableContentPreview({
     }
 
     const handleCancel = () => {
-        setEditedContent(typeof content === 'string' ? content : JSON.stringify(content, null, 2))
+        setEditedContent(
+            typeof content === 'string' ? content : (Array.isArray(content) ? [...content] : JSON.stringify(content, null, 2))
+        )
         setIsEditing(false)
     }
 
-    // Handle Array content (e.g. found_items, selected_items)
+    const handleArrayItemChange = (index: number, value: string) => {
+        if (Array.isArray(editedContent)) {
+            const newContent = [...editedContent];
+            // Update the main text field of the item
+            if (typeof newContent[index] === 'object') {
+                if ('reply' in newContent[index]) newContent[index] = { ...newContent[index], reply: value };
+                else if ('text' in newContent[index]) newContent[index] = { ...newContent[index], text: value };
+                else if ('content' in newContent[index]) newContent[index] = { ...newContent[index], content: value };
+                else newContent[index] = value; // Fallback
+            } else {
+                newContent[index] = value;
+            }
+            setEditedContent(newContent);
+        }
+    }
+
+    // Handle Array content (View Mode)
     if (Array.isArray(content) && !isEditing) {
         return (
             <div className="mt-2 bg-white/5 p-4 rounded-xl border border-white/10 text-xs shadow-inner relative group">
@@ -78,8 +153,8 @@ export default function EditableContentPreview({
                 <div className="space-y-3">
                     {content.map((item: any, idx) => (
                         <div key={idx} className="bg-white/5 p-2 rounded border border-white/5">
-                            {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author}</div>}
-                            <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{item.reply || item.text || item.content || JSON.stringify(item)}</div>
+                            {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author.replace(/^@/, '')}</div>}
+                            <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{cleanString(item.reply || item.text || item.content || JSON.stringify(item))}</div>
                             {item.reason && (
                                 <div className="text-green-400/70 text-[10px] mt-1 italic">
                                     → {item.reason}
@@ -92,7 +167,7 @@ export default function EditableContentPreview({
         )
     }
 
-    // Edit mode (for both array and string content)
+    // Edit mode
     if (isEditing) {
         return (
             <div className="mt-2 bg-white/5 p-4 rounded-xl border border-accent/30 text-xs shadow-inner">
@@ -103,12 +178,32 @@ export default function EditableContentPreview({
                     </div>
                 )}
 
-                <textarea
-                    value={editedContent}
-                    onChange={(e) => setEditedContent(e.target.value)}
-                    className="w-full min-h-[200px] bg-black/30 border border-white/10 rounded-lg p-3 text-foreground/90 font-mono text-xs resize-y focus:outline-none focus:border-accent/50"
-                    placeholder="Edit content here..."
-                />
+                {Array.isArray(editedContent) ? (
+                    <div className="space-y-4">
+                        {editedContent.map((item: any, idx) => (
+                            <div key={idx} className="bg-black/20 p-3 rounded border border-white/10">
+                                {item.author && (
+                                    <div className="text-blue-400 font-bold mb-2 text-xs">
+                                        Replying to: @{item.author.replace('@', '')}
+                                    </div>
+                                )}
+                                <textarea
+                                    value={item.reply || item.text || item.content || (typeof item === 'string' ? item : JSON.stringify(item))}
+                                    onChange={(e) => handleArrayItemChange(idx, e.target.value)}
+                                    className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded p-2 text-foreground/90 font-mono text-xs resize-y focus:outline-none focus:border-accent/50"
+                                    placeholder="Enter reply text..."
+                                />
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <textarea
+                        value={editedContent as string}
+                        onChange={(e) => setEditedContent(e.target.value)}
+                        className="w-full min-h-[200px] bg-black/30 border border-white/10 rounded-lg p-3 text-foreground/90 font-mono text-xs resize-y focus:outline-none focus:border-accent/50"
+                        placeholder="Edit content here..."
+                    />
+                )}
 
                 <div className="flex justify-end gap-2 mt-3">
                     <button

@@ -9,7 +9,118 @@
  * - Multiple selector fallbacks
  */
 
-console.log("[LaunchGrid] Content Script Loaded - v2.0");
+console.log("[LaunchGrid] Content Script Loaded - v2.2");
+
+// ... (rest of configuration unchanged until performSingleReply)
+
+/**
+ * Core logic to post a single reply
+ */
+async function performSingleReply(taskId, tweetUrl, replyText) {
+    sendProgress(taskId, "Navigating to tweet...", { url: tweetUrl });
+
+    // Navigate if needed
+    if (window.location.href.split('?')[0] !== tweetUrl.split('?')[0]) {
+        window.location.href = tweetUrl;
+        // Wait for navigation and reload
+        await sleep(5000); // Increased wait time for full load
+    }
+
+    // Wait for page interaction to settle
+    await sleep(2000);
+
+    // Try to find editor
+    sendProgress(taskId, "Locating reply box...");
+
+    // Selectors for the reply input area
+    const editorSelectors = [
+        '[data-testid="tweetTextarea_0"]',
+        'div[role="textbox"][contenteditable="true"]',
+        '.public-DraftEditor-content'
+    ];
+
+    let editor = await waitForElement(editorSelectors, 5000);
+
+    // FALLBACK: If inline editor not found, try clicking the "Reply" icon
+    if (!editor) {
+        sendProgress(taskId, "Inline editor not found, clicking Reply button...");
+        const replyIconSelectors = [
+            '[data-testid="reply"]',
+            'button[aria-label*="Reply"]'
+        ];
+        const replyIcon = await waitForElement(replyIconSelectors, 3000);
+
+        if (replyIcon) {
+            replyIcon.click();
+            await sleep(1000); // Wait for modal
+            editor = await waitForElement(editorSelectors, 5000);
+        }
+    }
+
+    if (!editor) {
+        throw new Error('Could not find reply box. Are you logged in?');
+    }
+
+    // Focus and click
+    editor.click();
+    editor.focus();
+    await sleep(500);
+
+    // Type text
+    sendProgress(taskId, "Typing reply...");
+
+    // Method 1: execCommand (Legacy but reliable for rich text editors)
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertText', false, replyText);
+    await sleep(500);
+
+    // Method 2: Fallback direct input if empty
+    if (!editor.innerText.trim()) {
+        const dataTransfer = new DataTransfer();
+        dataTransfer.setData('text/plain', replyText);
+        editor.dispatchEvent(new ClipboardEvent('paste', {
+            clipboardData: dataTransfer,
+            bubbles: true,
+            cancelable: true
+        }));
+    }
+
+    // Ensure state updates
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.dispatchEvent(new Event('change', { bubbles: true }));
+
+    await sleep(1500);
+
+    // Find Reply button
+    const buttonSelectors = [
+        '[data-testid="tweetButtonInline"]',
+        '[data-testid="tweetButton"]',
+        'button[data-testid="tweetButton"]'
+    ];
+
+    const replyBtn = await waitForElement(buttonSelectors, 3000);
+
+    if (!replyBtn) {
+        throw new Error('Reply button not found');
+    }
+
+    // Wait a bit if disabled (sometimes takes a moment to validate text)
+    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+        await sleep(2000);
+    }
+
+    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+        throw new Error('Reply button is disabled. Text might be invalid.');
+    }
+
+    sendProgress(taskId, "Clicking reply...");
+    replyBtn.click();
+
+    // Wait for success confirmation (toast or disappearance)
+    await sleep(3000);
+
+    return true;
+}
 
 // ============================================
 // CONFIGURATION
@@ -573,3 +684,163 @@ window.addEventListener('beforeunload', () => {
         }
     }
 });
+
+/**
+ * Post a reply to a tweet
+ */
+/**
+ * Post a reply to a tweet
+ */
+async function postReply(taskId, config) {
+    // Prevent concurrent operations
+    if (currentTaskId) {
+        console.warn('[LaunchGrid] Operation already in progress');
+        return;
+    }
+
+    currentTaskId = taskId;
+    scanStartTime = Date.now();
+    operationAborted = false;
+
+    // Timeout safety (longer for batch operations)
+    const timeoutDuration = (config.replies && config.replies.length > 1) ? 300000 : 60000;
+    const timeoutId = setTimeout(() => {
+        sendResult(taskId, { error: 'TIMEOUT', summary: 'Reply operation timed out.' }, true);
+    }, timeoutDuration);
+
+    try {
+        const replies = config.replies || [config];
+        const results = [];
+        let successCount = 0;
+
+        for (let i = 0; i < replies.length; i++) {
+            if (operationAborted) break;
+
+            const item = replies[i];
+            const targetUrl = item.targetUrl || item.url;
+            const replyText = item.replyText || item.reply || item.content; // Fallbacks
+
+            if (!targetUrl || !replyText) {
+                console.warn('Skipping item missing url or text:', item);
+                results.push({ success: false, error: 'Missing URL or text' });
+                continue;
+            }
+
+            if (replies.length > 1) {
+                sendProgress(taskId, `Posting reply ${i + 1}/${replies.length}...`, { current: i + 1, total: replies.length });
+            }
+
+            try {
+                await performSingleReply(taskId, targetUrl, replyText);
+                results.push({ success: true, url: targetUrl });
+                successCount++;
+
+                // Random delay between posts to look natural
+                if (i < replies.length - 1) {
+                    const delay = 5000 + Math.random() * 3000;
+                    sendProgress(taskId, `Waiting ${Math.floor(delay / 1000)}s before next reply...`);
+                    await sleep(delay);
+                }
+            } catch (err) {
+                console.error('Failed to post single reply:', err);
+                results.push({ success: false, url: targetUrl, error: err.message });
+            }
+        }
+
+        clearTimeout(timeoutId);
+
+        if (successCount === 0 && replies.length > 0) {
+            throw new Error('All reply attempts failed.');
+        }
+
+        sendResult(taskId, {
+            success: true,
+            summary: `Successfully posted ${successCount}/${replies.length} replies.`,
+            results
+        });
+
+    } catch (error) {
+        console.error('[LaunchGrid] Post error:', error);
+        clearTimeout(timeoutId);
+        sendResult(taskId, {
+            error: 'POST_FAILED',
+            summary: `Failed to post replies: ${error.message}`
+        }, true);
+    }
+}
+
+/**
+ * Core logic to post a single reply
+ */
+async function performSingleReply(taskId, tweetUrl, replyText) {
+    sendProgress(taskId, "Navigating to tweet...", { url: tweetUrl });
+
+    // Navigate if needed
+    if (window.location.href.split('?')[0] !== tweetUrl.split('?')[0]) {
+        window.location.href = tweetUrl;
+        // Wait for navigation and reload
+        await sleep(3000);
+    }
+
+    // Wait for editor
+    sendProgress(taskId, "Locating reply box...");
+
+    // Selectors for the reply input area
+    const editorSelectors = [
+        '[data-testid="tweetTextarea_0"]',
+        'div[role="textbox"][contenteditable="true"]'
+    ];
+
+    const editor = await waitForElement(editorSelectors);
+
+    if (!editor) {
+        throw new Error('Could not find reply box. Are you logged in?');
+    }
+
+    // Focus and click
+    editor.click();
+    editor.focus();
+    await sleep(500);
+
+    // Type text (simulation)
+    sendProgress(taskId, "Typing reply...");
+
+    // Clear existing text if any (rare but safe)
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertText', false, replyText);
+
+    // Verify text was entered
+    await sleep(1000);
+    if (editor.innerText.trim() === '') {
+        // Fallback: try different input method
+        editor.innerText = replyText;
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    await sleep(1000);
+
+    // Find Reply button
+    const buttonSelectors = [
+        '[data-testid="tweetButtonInline"]',
+        '[data-testid="tweetButton"]'
+    ];
+
+    const replyBtn = await waitForElement(buttonSelectors, 5000);
+
+    if (!replyBtn) {
+        throw new Error('Reply button not found');
+    }
+
+    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+        throw new Error('Reply button is disabled. Text might be too long or invalid.');
+    }
+
+    sendProgress(taskId, "Clicking reply...");
+    replyBtn.click();
+
+    // Wait for success confirmation (toast or disappearance)
+    await sleep(2000);
+
+    // Additional wait to ensure post is processed
+    return true;
+}

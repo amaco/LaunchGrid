@@ -96,8 +96,16 @@ export default function WorkflowDetailModal({
                 return i
             }
 
-            // BLOCK: If REVIEW_CONTENT step is in review_needed, can't proceed
-            if (step.type === 'REVIEW_CONTENT' && latestTask.status === 'review_needed') {
+            // BLOCK: If step needs review/approval, can't proceed
+            if (
+                latestTask.status === 'review_needed' &&
+                (
+                    step.type === 'REVIEW_CONTENT' ||
+                    step.type === 'POST_EXTENSION' ||
+                    step.type === 'POST_REPLY' ||
+                    step.type === 'POST_API'
+                )
+            ) {
                 return -2 // Special value: blocked on review
             }
         }
@@ -351,9 +359,8 @@ export default function WorkflowDetailModal({
                                                         latestTask.status === 'failed'
                                                     ) &&
                                                         step.type !== 'REVIEW_CONTENT' &&
-                                                        step.type !== 'POST_EXTENSION' &&
-                                                        step.type !== 'POST_REPLY' &&
-                                                        step.type !== 'POST_API' &&
+                                                        // For POST steps, only allow rerun if not successfully completed to avoid duplicates
+                                                        (!['POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type) || latestTask.status !== 'completed') &&
                                                         (idx === nextStepIndex - 1 || (nextStepIndex < 0 && idx === sortedSteps.length - 1) || latestTask.status === 'cancelled' || latestTask.status === 'failed') && (
                                                             <button
                                                                 onClick={(e) => {
