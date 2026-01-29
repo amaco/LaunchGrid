@@ -21,13 +21,13 @@ const CONFIG = {
     SCROLL_DELAY_MS: 2000,             // Time between scrolls
     ELEMENT_WAIT_TIMEOUT_MS: 15000,    // Wait for initial elements
     HEARTBEAT_INTERVAL_MS: 5000,       // Send progress every 5s
-    
+
     // Limits
     MAX_SCROLL_ATTEMPTS: 30,           // Maximum scroll attempts
     NO_NEW_CONTENT_THRESHOLD: 4,       // Stop after X scrolls with no new content
     MIN_TWEET_LENGTH: 10,              // Minimum tweet text length
     DEFAULT_TARGET_COUNT: 25,          // Default tweets to collect
-    
+
     // Selectors (multiple fallbacks as X changes often)
     SELECTORS: {
         article: 'article[data-testid="tweet"]',
@@ -66,7 +66,7 @@ let scanStartTime = null;
  */
 function sendProgress(taskId, message, data = {}) {
     if (!taskId) return;
-    
+
     chrome.runtime.sendMessage({
         type: 'TASK_PROGRESS',
         taskId: taskId,
@@ -89,15 +89,15 @@ function sendResult(taskId, data, isError = false) {
         clearInterval(heartbeatInterval);
         heartbeatInterval = null;
     }
-    
+
     chrome.runtime.sendMessage({
         type: 'TASK_RESULT',
         taskId: taskId,
         data: isError ? { error: data.error, summary: data.summary } : data
     });
-    
+
     console.log(`[LaunchGrid] Result sent:`, isError ? 'ERROR' : 'SUCCESS', data);
-    
+
     // Reset state
     currentTaskId = null;
     operationAborted = false;
@@ -110,7 +110,7 @@ function sendResult(taskId, data, isError = false) {
 async function waitForElement(selectors, timeout = CONFIG.ELEMENT_WAIT_TIMEOUT_MS) {
     const selectorArray = Array.isArray(selectors) ? selectors : [selectors];
     const start = Date.now();
-    
+
     while (Date.now() - start < timeout) {
         for (const selector of selectorArray) {
             const element = document.querySelector(selector);
@@ -156,16 +156,16 @@ async function smoothScroll(distance) {
     const target = start + distance;
     const duration = 500;
     const startTime = Date.now();
-    
+
     return new Promise(resolve => {
         function step() {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / duration, 1);
-            
+
             // Ease out
             const easeOut = 1 - Math.pow(1 - progress, 3);
             window.scrollTo(0, start + (distance * easeOut));
-            
+
             if (progress < 1) {
                 requestAnimationFrame(step);
             } else {
@@ -190,29 +190,29 @@ function extractTweetData(article) {
         if (!text || text.length < CONFIG.MIN_TWEET_LENGTH) {
             return null;
         }
-        
+
         // Get author
-        const userNameEl = article.querySelector(CONFIG.SELECTORS.userName[0]) || 
-                          article.querySelector(CONFIG.SELECTORS.userName[1]);
-        
+        const userNameEl = article.querySelector(CONFIG.SELECTORS.userName[0]) ||
+            article.querySelector(CONFIG.SELECTORS.userName[1]);
+
         let author = 'Unknown';
         if (userNameEl) {
             const parts = userNameEl.innerText.split('\n').filter(p => p.trim());
             // Usually format is: DisplayName\n@handle or just @handle
             author = parts.find(p => p.startsWith('@')) || parts[0] || 'Unknown';
         }
-        
+
         // Get timestamp
         const timeEl = article.querySelector(CONFIG.SELECTORS.time);
         const time = timeEl?.getAttribute('datetime') || new Date().toISOString();
-        
+
         // Get tweet URL
         const linkEl = article.querySelector(CONFIG.SELECTORS.statusLink);
         const url = linkEl?.href || null;
-        
+
         // Create unique ID from content hash
         const id = `tweet_${hashCode(text + author)}`;
-        
+
         return {
             id,
             text,
@@ -249,13 +249,13 @@ function hashCode(str) {
  */
 function collectVisibleTweets(existingTweets) {
     const tweets = new Map(existingTweets);
-    
+
     // Try specific selector first, then fallback
     let articles = document.querySelectorAll(CONFIG.SELECTORS.article);
     if (articles.length === 0) {
         articles = document.querySelectorAll(CONFIG.SELECTORS.articleFallback);
     }
-    
+
     let newCount = 0;
     articles.forEach(article => {
         const tweet = extractTweetData(article);
@@ -264,7 +264,7 @@ function collectVisibleTweets(existingTweets) {
             newCount++;
         }
     });
-    
+
     return { tweets, newCount };
 }
 
@@ -276,63 +276,63 @@ async function autoScrollAndCollect(taskId, targetCount, sendProgressFn) {
     let scrollAttempts = 0;
     let noNewContentStreak = 0;
     let lastHeight = document.body.scrollHeight;
-    
+
     // Wait for initial content
     sendProgressFn(taskId, "Waiting for feed content...");
     const initialContent = await waitForElement([
         CONFIG.SELECTORS.article,
         CONFIG.SELECTORS.articleFallback
     ]);
-    
+
     if (!initialContent) {
         sendProgressFn(taskId, "No content found - check if you're on the feed page");
         return { tweets: [], endReason: 'NO_CONTENT_FOUND' };
     }
-    
+
     sendProgressFn(taskId, "Feed content detected, starting scan...");
-    
+
     while (
-        tweets.size < targetCount && 
-        scrollAttempts < CONFIG.MAX_SCROLL_ATTEMPTS && 
+        tweets.size < targetCount &&
+        scrollAttempts < CONFIG.MAX_SCROLL_ATTEMPTS &&
         !operationAborted
     ) {
         // Collect current visible tweets
         const { tweets: updatedTweets, newCount } = collectVisibleTweets(tweets);
-        
+
         // Update our collection
         for (const [id, tweet] of updatedTweets) {
             tweets.set(id, tweet);
         }
-        
+
         // Report progress
         sendProgressFn(
-            taskId, 
+            taskId,
             `Scanning... ${tweets.size}/${targetCount} tweets collected`,
             { collected: tweets.size, target: targetCount, scrolls: scrollAttempts }
         );
-        
+
         // Check if we've reached target
         if (tweets.size >= targetCount) {
             break;
         }
-        
+
         // Track if we're getting new content
         if (newCount === 0) {
             noNewContentStreak++;
         } else {
             noNewContentStreak = 0;
         }
-        
+
         // If no new content for several scrolls, we might be at end of feed
         if (noNewContentStreak >= CONFIG.NO_NEW_CONTENT_THRESHOLD) {
             sendProgressFn(taskId, `End of available content reached (${tweets.size} tweets found)`);
             break;
         }
-        
+
         // Scroll down
         await smoothScroll(window.innerHeight * 1.2);
         await sleep(CONFIG.SCROLL_DELAY_MS);
-        
+
         // Check if page height changed (new content loaded)
         const newHeight = document.body.scrollHeight;
         if (newHeight === lastHeight) {
@@ -343,13 +343,13 @@ async function autoScrollAndCollect(taskId, targetCount, sendProgressFn) {
             await sleep(500);
         }
         lastHeight = newHeight;
-        
+
         scrollAttempts++;
     }
-    
+
     // Scroll back to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    
+
     // Determine end reason
     let endReason = 'TARGET_REACHED';
     if (operationAborted) {
@@ -359,7 +359,7 @@ async function autoScrollAndCollect(taskId, targetCount, sendProgressFn) {
     } else if (scrollAttempts >= CONFIG.MAX_SCROLL_ATTEMPTS) {
         endReason = 'MAX_SCROLLS_REACHED';
     }
-    
+
     return {
         tweets: Array.from(tweets.values()),
         endReason,
@@ -381,11 +381,11 @@ async function scanFeed(taskId, config = {}) {
         console.warn('[LaunchGrid] Scan already in progress, ignoring new request');
         return;
     }
-    
+
     currentTaskId = taskId;
     scanStartTime = Date.now();
     operationAborted = false;
-    
+
     // Set up operation timeout
     const timeoutId = setTimeout(() => {
         console.warn('[LaunchGrid] Operation timeout reached');
@@ -395,7 +395,7 @@ async function scanFeed(taskId, config = {}) {
             summary: 'Scan timed out after 2 minutes. Please try again.'
         }, true);
     }, CONFIG.MAX_OPERATION_TIMEOUT_MS);
-    
+
     // Set up heartbeat
     heartbeatInterval = setInterval(() => {
         if (currentTaskId) {
@@ -405,14 +405,14 @@ async function scanFeed(taskId, config = {}) {
             });
         }
     }, CONFIG.HEARTBEAT_INTERVAL_MS);
-    
+
     try {
         // 1. Check authentication
         sendProgress(taskId, "Checking X authentication...");
-        
+
         // Give X a moment to fully render
         await sleep(1500);
-        
+
         if (!isLoggedIn()) {
             // Wait a bit more and retry
             await sleep(2000);
@@ -425,13 +425,13 @@ async function scanFeed(taskId, config = {}) {
                 return;
             }
         }
-        
+
         sendProgress(taskId, "Authentication verified ✓");
-        
+
         // 2. Check we're on a valid page
-        const onFeedPage = window.location.hostname.includes('x.com') || 
-                          window.location.hostname.includes('twitter.com');
-        
+        const onFeedPage = window.location.hostname.includes('x.com') ||
+            window.location.hostname.includes('twitter.com');
+
         if (!onFeedPage) {
             clearTimeout(timeoutId);
             sendResult(taskId, {
@@ -440,12 +440,12 @@ async function scanFeed(taskId, config = {}) {
             }, true);
             return;
         }
-        
+
         // 3. Navigate to home if not already there
-        const isHomeFeed = window.location.pathname === '/home' || 
-                          window.location.pathname === '/' ||
-                          window.location.pathname.startsWith('/home');
-        
+        const isHomeFeed = window.location.pathname === '/home' ||
+            window.location.pathname === '/' ||
+            window.location.pathname.startsWith('/home');
+
         if (!isHomeFeed) {
             sendProgress(taskId, "Navigating to home feed...");
             window.location.href = 'https://x.com/home';
@@ -454,23 +454,23 @@ async function scanFeed(taskId, config = {}) {
             if (heartbeatInterval) clearInterval(heartbeatInterval);
             return;
         }
-        
+
         // 4. Start scanning
         const targetCount = config.targetTweetCount || CONFIG.DEFAULT_TARGET_COUNT;
         sendProgress(taskId, `Starting scan for ${targetCount} tweets...`);
-        
+
         const result = await autoScrollAndCollect(taskId, targetCount, sendProgress);
-        
+
         // 5. Clear timeout and send results
         clearTimeout(timeoutId);
-        
+
         if (operationAborted) {
             // Already handled in timeout callback
             return;
         }
-        
+
         const elapsedSeconds = Math.floor((Date.now() - scanStartTime) / 1000);
-        
+
         if (result.tweets.length === 0) {
             sendResult(taskId, {
                 error: 'NO_TWEETS_FOUND',
@@ -494,11 +494,11 @@ async function scanFeed(taskId, config = {}) {
                 }
             });
         }
-        
+
     } catch (error) {
         console.error('[LaunchGrid] Scan error:', error);
         clearTimeout(timeoutId);
-        
+
         sendResult(taskId, {
             error: 'SCAN_ERROR',
             summary: `Scan failed: ${error.message}. Please refresh the page and try again.`,
@@ -513,28 +513,34 @@ async function scanFeed(taskId, config = {}) {
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log("[LaunchGrid] Message received:", request);
-    
+
     if (request.action === 'SCAN_FEED') {
         // Acknowledge receipt immediately
         sendResponse({ received: true, status: 'starting' });
-        
+
         // Start scan asynchronously
         scanFeed(request.taskId, request.config || {});
-        
+
         // Return true to indicate we'll send async response via sendMessage
         return true;
     }
-    
+
+    if (request.action === 'POST_REPLY' || request.action === 'POST_EXTENSION') {
+        sendResponse({ received: true, status: 'starting' });
+        postReply(request.taskId, request.config || {});
+        return true;
+    }
+
     if (request.action === 'PING') {
         // Health check
-        sendResponse({ 
-            alive: true, 
+        sendResponse({
+            alive: true,
             scanning: !!currentTaskId,
-            currentTask: currentTaskId 
+            currentTask: currentTaskId
         });
         return true;
     }
-    
+
     if (request.action === 'ABORT') {
         // Abort current scan
         if (currentTaskId) {
@@ -545,7 +551,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         return true;
     }
-    
+
     // Unknown action
     sendResponse({ error: 'Unknown action', received: request.action });
     return false;
