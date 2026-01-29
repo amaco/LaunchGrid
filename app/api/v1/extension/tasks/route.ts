@@ -281,7 +281,11 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   // Determine new status
   // Posting steps (POST_REPLY, POST_EXTENSION, POST_API) move directly to 'completed' 
   // because the "human loop" (Approval) already happened before the extension was queued.
-  const isPostAction = ['POST_REPLY', 'POST_EXTENSION', 'POST_API'].includes(existingTask.step?.type);
+  const stepType = existingTask.step?.type || (existingTask as any).steps?.type;
+  const isPostAction = ['POST_REPLY', 'POST_EXTENSION', 'POST_API'].includes(stepType);
+
+  console.log(`[Extension API] Task ${taskId} type: ${stepType}, isPostAction: ${isPostAction}`);
+
   const newStatus = result.success
     ? (isPostAction ? 'completed' : 'review_needed')
     : 'failed';

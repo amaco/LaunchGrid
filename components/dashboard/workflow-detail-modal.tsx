@@ -97,7 +97,11 @@ export default function WorkflowDetailModal({
             }
 
             // BLOCK: If step needs review/approval, can't proceed
+            // BUT: If we have results (e.g. green dots), we treat it as done/unblocked
+            const hasResults = !!latestTask.output_data?.results
+
             if (
+                !hasResults &&
                 latestTask.status === 'review_needed' &&
                 (
                     step.type === 'REVIEW_CONTENT' ||
@@ -238,13 +242,14 @@ export default function WorkflowDetailModal({
                                     let statusIcon = <Clock className="w-4 h-4 text-foreground/30" />
                                     let statusBg = 'bg-white/5'
 
-                                    const isActuallyComplete = latestTask?.status === 'completed' ||
-                                        (latestTask?.status === 'review_needed' && step.type !== 'REVIEW_CONTENT')
+                                    const hasResults = !!latestTask?.output_data?.results
+                                    const isActuallyComplete = latestTask?.status === 'completed' || hasResults ||
+                                        (latestTask?.status === 'review_needed' && !['REVIEW_CONTENT', 'POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type))
 
                                     if (isActuallyComplete) {
                                         statusIcon = <CheckCircle className="w-4 h-4 text-green-400" />
                                         statusBg = 'bg-green-500/10'
-                                    } else if (latestTask?.status === 'review_needed' && step.type === 'REVIEW_CONTENT') {
+                                    } else if (latestTask?.status === 'review_needed' && ['REVIEW_CONTENT', 'POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type)) {
                                         statusIcon = <AlertCircle className="w-4 h-4 text-amber-400" />
                                         statusBg = 'bg-amber-500/10'
                                     } else if (latestTask?.status === 'in_progress' || latestTask?.status === 'extension_queued') {
@@ -274,15 +279,17 @@ export default function WorkflowDetailModal({
                                                     </div>
                                                     {latestTask?.status && (
                                                         <div className="text-xs text-foreground/40 font-medium">
-                                                            {latestTask.status === 'review_needed' && step.type === 'REVIEW_CONTENT'
-                                                                ? 'Awaiting your review'
-                                                                : latestTask.status === 'review_needed'
-                                                                    ? 'Approved & Ready for X'
-                                                                    : latestTask.status === 'extension_queued' || latestTask.status === 'in_progress'
-                                                                        ? (latestTask.output_data?.progress_info || 'Action pending...')
-                                                                        : latestTask.status === 'completed'
-                                                                            ? 'Success'
-                                                                            : latestTask.status}
+                                                            {(latestTask.status === 'completed' || hasResults)
+                                                                ? 'Completed'
+                                                                : latestTask.status === 'review_needed' && step.type === 'REVIEW_CONTENT'
+                                                                    ? 'Awaiting your review'
+                                                                    : latestTask.status === 'review_needed' && ['POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type)
+                                                                        ? 'Approved & Ready for X'
+                                                                        : latestTask.status === 'review_needed'
+                                                                            ? 'Completed (data ready)'
+                                                                            : latestTask.status === 'extension_queued' || latestTask.status === 'in_progress'
+                                                                                ? (latestTask.output_data?.progress_info || 'Action pending...')
+                                                                                : latestTask.status}
                                                         </div>
                                                     )}
                                                 </div>
@@ -310,7 +317,7 @@ export default function WorkflowDetailModal({
                                                     )}
                                                     {/* Approve & Post button for POST/REPLY steps */}
                                                     {(step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY' || step.type === 'POST_API') &&
-                                                        latestTask?.status === 'review_needed' && (
+                                                        latestTask?.status === 'review_needed' && !latestTask?.output_data?.results && (
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
@@ -456,7 +463,7 @@ export default function WorkflowDetailModal({
                 )}
 
                 {/* Blocked on review - subtle info message */}
-                {!showEditor && nextStepIndex === -2 && (
+                {!showEditor && nextStepIndex === -2 && !workflow.steps.some(s => s.type === 'POST_REPLY' && s.tasks?.some(t => t.output_data?.results)) && (
                     <div className="p-4 border-t border-white/10 bg-amber-500/10 shrink-0 text-center">
                         <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
                             <AlertCircle className="w-4 h-4" />
