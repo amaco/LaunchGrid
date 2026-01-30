@@ -108,6 +108,7 @@ export const workflowConfigSchema = z.object({
   feedScanCount: z.number().int().min(5).max(100).default(20),
   autoTrackEngagement: z.boolean().default(true),
   aiStrictness: z.enum(['low', 'medium', 'high']).default('medium'),
+  replyCalibration: z.enum(['pure_engagement', 'subtle_hint', 'direct_push']).default('subtle_hint'),
 });
 
 export const createWorkflowSchema = z.object({

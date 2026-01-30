@@ -110,8 +110,14 @@ async function authenticateRequest(request: NextRequest): Promise<{
   // Check for API key in header (for extension/external clients)
   const apiKey = request.headers.get('x-api-key');
   if (apiKey) {
-    // TODO: Implement API key authentication
-    // For now, fall back to session auth
+    const validKey = process.env.EXTENSION_API_KEY;
+    if (validKey && apiKey === validKey) {
+      return {
+        user: { id: 'extension-service-account', email: 'extension@system' },
+        organizationId: 'system'
+      };
+    }
+    // Invalid key returns null (auth failed) if no other auth method succeeds
   }
 
   // Check for Bearer token
@@ -342,7 +348,7 @@ export function withAuth(handler: APIHandler, options?: {
  * Middleware for extension API (allows anonymous but rate limited)
  */
 export function withExtensionAuth(handler: APIHandler): (request: NextRequest) => Promise<NextResponse> {
-  return withAuth(handler, { rateLimit: 'extension', requireAuth: false });
+  return withAuth(handler, { rateLimit: 'extension', requireAuth: true });
 }
 
 /**

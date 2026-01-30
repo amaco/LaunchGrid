@@ -30,7 +30,18 @@ export default async function ProjectPage({ params }: Props) {
                 tasks (*)
             )
         `).eq('project_id', id).order('created_at', { ascending: true }),
-        supabase.from('engagement_jobs').select('*').eq('project_id', id).order('created_at', { ascending: false })
+        supabase.from('engagement_jobs').select(`
+            *,
+            task:tasks (
+                step:steps (
+                    type,
+                    workflow:workflows (
+                        id,
+                        name
+                    )
+                )
+            )
+        `).eq('project_id', id).order('created_at', { ascending: false })
     ])
 
     if (projectRes.error || !projectRes.data) return notFound()
@@ -53,7 +64,11 @@ export default async function ProjectPage({ params }: Props) {
         nextCheckAt: new Date(row.next_check_at),
         lastMetrics: row.last_metrics || {},
         metricHistory: row.metric_history || [],
-        createdAt: new Date(row.created_at)
+        createdAt: new Date(row.created_at),
+        // Map joined data
+        workflowId: row.task?.step?.workflow?.id,
+        workflowName: row.task?.step?.workflow?.name,
+        sourceType: row.task?.step?.type
     }))
 
     return (

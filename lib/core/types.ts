@@ -115,6 +115,7 @@ export interface WorkflowConfig {
   feedScanCount?: number; // How many posts to scan in SCAN_FEED step
   autoTrackEngagement?: boolean; // Whether to auto-create tracking jobs
   aiStrictness?: 'low' | 'medium' | 'high'; // AI filtering strictness
+  replyCalibration?: 'pure_engagement' | 'subtle_hint' | 'direct_push'; // Reply style calibration
 
   templateId?: string; // ID of template this workflow was created from
   templateName?: string; // Name of the template for display
@@ -207,6 +208,11 @@ export interface EngagementJob {
   lastMetrics: EngagementMetrics;
   metricHistory: EngagementMetrics[];
   createdAt: Date;
+
+  // UI Enrichment
+  workflowId?: string;
+  workflowName?: string;
+  sourceType?: string;
 }
 
 export type EngagementJobStatus = 'active' | 'completed' | 'expired' | 'stopped';

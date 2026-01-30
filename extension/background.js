@@ -19,6 +19,7 @@ console.log("[LaunchGrid] Background Service Worker Started - v2.5");
 const CONFIG = {
     // API
     API_URL: 'http://localhost:3000/api/v1/extension',
+    API_KEY: 'ext_secure_88a92b3c7d',
 
     // Polling
     POLL_INTERVAL_MINUTES: 0.5,  // 30 seconds
@@ -134,7 +135,10 @@ async function reportProgress(taskId, progress, data = {}) {
     try {
         const response = await fetch(`${CONFIG.API_URL}/tasks`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': CONFIG.API_KEY
+            },
             body: JSON.stringify({
                 taskId,
                 progress,
@@ -162,7 +166,10 @@ async function reportResult(taskId, resultData, retryCount = 0) {
     try {
         const response = await fetch(`${CONFIG.API_URL}/tasks`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-Key': CONFIG.API_KEY
+            },
             body: JSON.stringify({
                 taskId,
                 result: {
@@ -398,7 +405,10 @@ async function checkTasks() {
     try {
         const response = await fetch(`${CONFIG.API_URL}/tasks`, {
             method: 'GET',
-            headers: { 'Accept': 'application/json', 'Cache-Control': 'no-cache' }
+            headers: {
+                'X-API-Key': CONFIG.API_KEY,
+                'Content-Type': 'application/json'
+            }
         });
         if (response.ok) {
             const data = await response.json();
@@ -459,7 +469,9 @@ const EngagementWorker = {
     async poll() {
         try {
             console.log('[Engagement] Polling for jobs...');
-            const response = await fetch(`${CONFIG.API_URL}/jobs/poll`);
+            const response = await fetch(`${CONFIG.API_URL}/jobs/poll`, {
+                headers: { 'X-API-Key': CONFIG.API_KEY }
+            });
             const data = await response.json();
 
             if (data.success && data.data?.jobs?.length > 0) {
@@ -561,7 +573,10 @@ const EngagementWorker = {
         if (result) {
             await fetch(`${CONFIG.API_URL}/jobs/${job.id}/result`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': CONFIG.API_KEY
+                },
                 body: JSON.stringify({ metrics: result })
             });
         }

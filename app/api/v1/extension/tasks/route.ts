@@ -356,29 +356,34 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
     const postedResults = result.data?.results || [];
     if (Array.isArray(postedResults) && postedResults.length > 0) {
       try {
-        // Direct insert to avoid complex ServiceContext recreation
-        const jobsToInsert = postedResults
-          .filter((r: any) => r.success && r.url)
-          .map((r: any) => ({
-            project_id: existingTask.project_id,
-            source_task_id: taskId,
-            target_url: r.url,
-            status: 'active',
-            current_status: 'active',
-            started_at: new Date().toISOString(),
-            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
-            next_check_at: new Date().toISOString(),
-            check_interval_minutes: 60
-          }));
+        // Use EngagementService to spawn jobs
+        const { EngagementService } = await import('@/lib/services/engagement-service');
 
-        if (jobsToInsert.length > 0) {
-          const { error: jobError } = await supabase
-            .from('engagement_jobs')
-            .insert(jobsToInsert);
+        // CONTEXT FIX: Pass proper ServiceContext structure with tenant object
+        const engagementService = new EngagementService({
+          supabase: supabase, // Admin client
+          tenant: {
+            organizationId: userId,
+            userId: userId,
+            role: 'owner'
+          },
+          requestId: context.requestId,
+          ipAddress: context.ipAddress,
+          userAgent: context.userAgent
+        } as any);
 
-          if (jobError) console.error('[Extension API] Failed to create tracking jobs:', jobError);
-          else console.log(`[Extension API] Spawed ${jobsToInsert.length} engagement jobs.`);
+        for (const res of postedResults) {
+          if (res.success && res.url) {
+            await engagementService.createJob({
+              projectId: existingTask.project_id,
+              targetUrl: res.url,
+              sourceTaskId: taskId,
+              durationDays: 7
+            });
+          }
         }
+
+        console.log(`[Extension API] Spawned ${postedResults.filter((r: any) => r.success).length} engagement jobs.`);
       } catch (err) {
         console.error('[Extension API] Error spawning engagement jobs:', err);
       }

@@ -29,7 +29,24 @@ async function handler(request: NextRequest, context: APIContext) {
     const body = await request.json();
     const { metrics } = validateInput(z.object({ metrics: metricsSchema }), body);
 
-    const service = new EngagementService(context.serviceContext);
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SECRET_KEY!,
+        { auth: { persistSession: false } }
+    );
+
+    const service = new EngagementService({
+        supabase,
+        tenant: {
+            organizationId: context.organizationId,
+            userId: context.user.id,
+            role: 'owner'
+        },
+        requestId: context.requestId,
+        ipAddress: context.ipAddress,
+        userAgent: context.userAgent
+    });
     const updatedJob = await service.reportMetrics(jobId, metrics);
 
     return successResponse({

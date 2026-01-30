@@ -3,7 +3,7 @@
 import { useState, useTransition } from 'react'
 import { EngagementJob } from '@/lib/core/types'
 import { triggerJobAction, stopJobAction } from '@/app/actions/manage-jobs'
-import { Play, Square, ExternalLink, Loader2, Clock, CheckCircle, AlertCircle, BarChart2 } from 'lucide-react'
+import { Play, Square, ExternalLink, Loader2, Clock, CheckCircle, AlertCircle, BarChart2, Workflow } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
 interface JobsTableProps {
@@ -50,6 +50,7 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                     <thead>
                         <tr className="border-b border-white/10 bg-white/5">
                             <th className="p-4 font-medium text-white/60">Target URL</th>
+                            <th className="p-4 font-medium text-white/60">Source Workflow</th>
                             <th className="p-4 font-medium text-white/60">Status</th>
                             <th className="p-4 font-medium text-white/60">Metrics</th>
                             <th className="p-4 font-medium text-white/60">Schedule</th>
@@ -74,6 +75,32 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                                 {job.targetUrl.replace('https://', '')}
                                                 <ExternalLink className="w-3 h-3 opacity-50" />
                                             </a>
+                                        </div>
+                                    </td>
+
+                                    <td className="p-4">
+                                        <div className="relative group w-fit">
+                                            {job.workflowName ? (
+                                                <>
+                                                    <div className="flex items-center gap-2 cursor-help">
+                                                        <span className="text-[10px] font-medium text-white/60 bg-white/5 px-2 py-1 rounded-md border border-white/5 group-hover:bg-white/10 transition-colors uppercase">
+                                                            {job.sourceType?.replace('POST_', '').replace('_', ' ') || 'WF'}
+                                                        </span>
+                                                        {/* Visual hint for more info */}
+                                                        <Workflow className="w-3 h-3 text-white/20 group-hover:text-white/40 transition-colors" />
+                                                    </div>
+
+                                                    {/* Custom Tooltip */}
+                                                    <div className="absolute left-0 bottom-full mb-2 w-max max-w-[200px] bg-[#111] border border-white/10 rounded-lg p-2.5 shadow-xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 translate-y-2 group-hover:translate-y-0">
+                                                        <div className="text-xs font-bold text-white mb-0.5 truncate">{job.workflowName}</div>
+                                                        <div className="text-[10px] text-white/40 font-mono bg-white/5 px-1 rounded w-fit">
+                                                            ID: {job.workflowId?.slice(0, 8)}...
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <span className="text-white/20 text-xs italic">Manual</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="p-4">
@@ -156,7 +183,7 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                         })}
                     </tbody>
                 </table>
-            </div>
-        </div>
+            </div >
+        </div >
     )
 }

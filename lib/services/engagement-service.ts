@@ -43,7 +43,6 @@ export class EngagementService extends BaseService {
                     project_id: input.projectId,
                     target_url: input.targetUrl,
                     source_task_id: input.sourceTaskId,
-                    status: 'active',
                     expires_at: expiresAt.toISOString(),
                     next_check_at: new Date().toISOString(), // Check immediately
                     check_interval_minutes: 60,

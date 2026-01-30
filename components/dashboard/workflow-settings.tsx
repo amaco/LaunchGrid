@@ -11,6 +11,8 @@ export default function WorkflowSettings({ workflow, onClose }: { workflow: any,
         feedScanCount: workflow.config?.feedScanCount ?? 20,
         autoTrackEngagement: workflow.config?.autoTrackEngagement ?? true,
         aiStrictness: workflow.config?.aiStrictness ?? 'medium',
+        aiStrictness: workflow.config?.aiStrictness ?? 'medium',
+        replyCalibration: workflow.config?.replyCalibration ?? 'subtle_hint',
         timeout: workflow.config?.timeout ?? 30000,
     })
     const [isSaving, setIsSaving] = useState(false)
@@ -63,6 +65,33 @@ export default function WorkflowSettings({ workflow, onClose }: { workflow: any,
                     <p className="text-xs text-foreground/50 mt-2">
                         Controls how picky the AI is when selecting targets.
                         {config.aiStrictness === 'high' && <span className="text-amber-500 block mt-1">⚠️ 'High' may result in 0 targets if feed is low quality.</span>}
+                    </p>
+                </div>
+
+                {/* REPLY CALIBRATION */}
+                <div className="group bg-white/5 p-4 rounded-lg border border-transparent hover:border-accent/30 transition-all relative">
+                    <label className="block text-sm font-semibold text-white mb-2 flex items-center gap-2">
+                        Reply Calibration
+                        <div className="relative group/tooltip cursor-help">
+                            <span className="text-xs bg-white/20 rounded-full w-4 h-4 flex items-center justify-center text-white">?</span>
+                            <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-48 p-2 bg-black border border-white/20 rounded text-xs text-white opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none z-10 shadow-xl">
+                                Controls how aggressively the AI mentions your project.
+                            </div>
+                        </div>
+                    </label>
+                    <select
+                        value={config.replyCalibration || 'subtle_hint'}
+                        onChange={(e) => setConfig({ ...config, replyCalibration: e.target.value as any })}
+                        className="w-full bg-black/50 border border-white/20 rounded px-3 py-2 text-sm focus:border-accent focus:outline-none text-white"
+                    >
+                        <option value="pure_engagement">Pure Engagement (No Project Mention)</option>
+                        <option value="subtle_hint">Subtle Hint (The Standard)</option>
+                        <option value="direct_push">Direct Push (Salesy/Bold)</option>
+                    </select>
+                    <p className="text-xs text-foreground/50 mt-2">
+                        {config.replyCalibration === 'pure_engagement' && "Just helpful, human replies. Builds trust."}
+                        {config.replyCalibration === 'subtle_hint' && "Engages first, then bridges to your worldview."}
+                        {config.replyCalibration === 'direct_push' && <span className="text-amber-500">⚠️ Aggressively pitches the solution. Use carefully.</span>}
                     </p>
                 </div>
 

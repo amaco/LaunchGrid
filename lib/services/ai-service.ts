@@ -352,9 +352,25 @@ export class AIService extends BaseService {
             }
 
             // Custom prompt for natural, high-context engagement
+            const calibration = taskContext.config?.replyCalibration || 'subtle_hint';
+
+            let styleInstruction = "";
+            let goalInstruction = "";
+
+            if (calibration === 'pure_engagement') {
+              goalInstruction = "GOAL: Engage deeply/intelligently with the tweet. Do NOT mention your own project/product. Just be a helpful/insightful peer.";
+              styleInstruction = "- STRICTLY FORBIDDEN: Mentioning your own product, app, or solution.\n- FOCUS: Adding value, validation, or a unique perspective.\n- TONE: Casual, supportive, expert.";
+            } else if (calibration === 'subtle_hint') {
+              goalInstruction = "GOAL: Engage deeply, then SUBTLY bridge to your worldview/philosophy.";
+              styleInstruction = "- STRATEGY: 80% validation/insight about THEIR post, 20% bridging to a lesson learned that aligns with your product's philosophy.\n- TONE: Helpful peer sharing a finding.";
+            } else if (calibration === 'direct_push') {
+              goalInstruction = "GOAL: Validate their problem, then PITCH your solution as the fix.";
+              styleInstruction = "- STRATEGY: Short validation, then immediately pivot to how your approach/tool solves this.\n- TONE: Confident, simplified, call-to-action.";
+            }
+
             const replyPrompt = `You are an experienced colleague/peer in this niche. You are reacting to a post on X (Twitter).
             
-GOAL: Engage deeply with the specific content of the tweet. Sound human, grounded, and insightful.
+${goalInstruction}
 
 ORIGINAL TWEET by @${target.author || 'user'}:
 "${target.text}"
@@ -366,10 +382,11 @@ YOUR BACKGROUND / WORLDVIEW:
 INSTRUCTIONS:
 1. READ closely. Reference a specific keyword or concept from the tweet (e.g., if they mention "Tuesday", mention "Tuesday" or time-of-week).
 2. VALIDATE their experience. Don't just say "I agree". Add a nuance.
-3. SUBTLY bridge to your worldview. Share a hard-learned lesson or a habit that helped you, but keep it casual.
-4. NO "Salesy" hooks. Do NOT try to "create curiosity" by being vague. Be helpful first.
+3. ${calibration === 'pure_engagement' ? "Add a unique insight or validation." : "SUBTLY bridge to your worldview."}
+4. ${styleInstruction}
 5. NO robotic phrases like "I understand your sentiment" or "It is crucial to...". Speak like a person on Twitter.
 6. Length: 1-2 conversational sentences. Lowercase beginning is okay if it fits the vibe.
+7. MAX LENGTH: STRICTLY under 280 characters. Ideally under 200.
 
 BAD EXAMPLES (Too robotic/salesy):
 - "I totally agree! I used to struggle until I found a secret method."
@@ -393,7 +410,7 @@ GENERATE REPLY:`;
             const draft = await provider.generateContent(replyContext, apiKey);
             return {
               targetId: target.id,
-              reply: draft.content,
+              reply: draft.content.length > 280 ? draft.content.substring(0, 277) + '...' : draft.content,
               url: (target as any).url, // Pass through URL for extension
               author: target.author,
               original_text: (target as any).text // Pass original text for context

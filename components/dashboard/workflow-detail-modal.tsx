@@ -11,6 +11,7 @@ import { X, Play, Loader2, CheckCircle, AlertCircle, Clock, Trash2, Settings, Ch
 import { useRouter } from 'next/navigation'
 import { executeWorkflowAction, rerunStepAction, approveTaskAction, cancelTaskAction } from '@/app/actions/execute-workflow'
 import { deleteWorkflowAction } from '@/app/actions/manage-workflows'
+import { retriggerEngagementAction } from '@/app/actions/debug-actions'
 import WorkflowEditor from './workflow-editor'
 import WorkflowSettings from './workflow-settings'
 import ContentPreview from './content-preview'
@@ -164,6 +165,17 @@ export default function WorkflowDetailModal({
         }
     }
 
+    const handleRetriggerData = async () => {
+        if (!confirm('Start background tracking for all posted replies?')) return
+        try {
+            const result = await retriggerEngagementAction(workflow.id)
+            alert(`Queued ${result.count} tracking jobs! Check Monitoring tab.`)
+            router.refresh()
+        } catch (e: any) {
+            alert(`Failed: ${e.message}`)
+        }
+    }
+
     const toggleStep = (stepId: string) => {
         const newExpanded = new Set(expandedSteps)
         if (newExpanded.has(stepId)) {
@@ -202,6 +214,13 @@ export default function WorkflowDetailModal({
                             title="Workflow Settings"
                         >
                             <Settings className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={handleRetriggerData}
+                            className="p-2 rounded-lg transition-colors hover:bg-white/10 text-foreground/50 hover:text-green-400"
+                            title="Start Engagement Tracking (Manual)"
+                        >
+                            <span className="text-lg">📊</span>
                         </button>
                         <button
                             onClick={handleDelete}

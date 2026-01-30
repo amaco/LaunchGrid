@@ -12,7 +12,7 @@ import { nanoid } from 'nanoid';
 import { eventBus, createEvent } from '../events/event-bus';
 import { auditLogger } from '../events/audit-logger';
 import type { TenantContext, EventType, AggregateType } from '../core/types';
-import { TenantAccessError, AuthenticationError } from '../core/errors';
+import { TenantAccessError, AuthenticationError, NotFoundError } from '../core/errors';
 
 export interface ServiceContext {
   supabase: SupabaseClient;
@@ -35,6 +35,9 @@ export abstract class BaseService {
   /**
    * Validate tenant context exists
    */
+  /**
+   * Validate tenant context exists
+   */
   protected validateTenantContext(): void {
     if (!this.context.tenant) {
       throw new AuthenticationError('Tenant context required');
@@ -44,6 +47,22 @@ export abstract class BaseService {
     }
     if (!this.context.tenant.userId) {
       throw new AuthenticationError('User ID required');
+    }
+  }
+
+  /**
+   * Verify project access (ensure project belongs to tenant)
+   */
+  protected async verifyProjectAccess(projectId: string): Promise<void> {
+    const { data, error } = await this.db
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', this.userId)
+      .single();
+
+    if (error || !data) {
+      throw new NotFoundError('Project', projectId);
     }
   }
 
@@ -158,21 +177,21 @@ export abstract class BaseService {
     fn: () => Promise<T>
   ): Promise<T> {
     const startTime = Date.now();
-    
+
     try {
       const result = await fn();
       const duration = Date.now() - startTime;
-      
+
       // Log successful operation
       console.log(`[${this.serviceName}] ${operation} completed in ${duration}ms`);
-      
+
       return result;
     } catch (error) {
       const duration = Date.now() - startTime;
-      
+
       // Log failed operation
       console.error(`[${this.serviceName}] ${operation} failed after ${duration}ms:`, error);
-      
+
       throw error;
     }
   }
