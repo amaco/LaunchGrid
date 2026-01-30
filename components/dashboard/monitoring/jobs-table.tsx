@@ -44,8 +44,8 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
     }
 
     return (
-        <div className="rounded-xl border border-white/10 bg-black/40 overflow-hidden backdrop-blur-sm">
-            <div className="overflow-x-auto">
+        <div className="rounded-xl border border-white/10 bg-black/40 backdrop-blur-sm">
+            <div className="overflow-x-visible">
                 <table className="w-full text-left text-sm">
                     <thead>
                         <tr className="border-b border-white/10 bg-white/5">
@@ -79,19 +79,19 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                     </td>
 
                                     <td className="p-4">
-                                        <div className="relative group w-fit">
+                                        <div className="relative group/workflow w-fit">
                                             {job.workflowName ? (
                                                 <>
                                                     <div className="flex items-center gap-2 cursor-help">
-                                                        <span className="text-[10px] font-medium text-white/60 bg-white/5 px-2 py-1 rounded-md border border-white/5 group-hover:bg-white/10 transition-colors uppercase">
+                                                        <span className="text-[10px] font-medium text-white/60 bg-white/5 px-2 py-1 rounded-md border border-white/5 group-hover/workflow:bg-white/10 transition-colors uppercase">
                                                             {job.sourceType?.replace('POST_', '').replace('_', ' ') || 'WF'}
                                                         </span>
                                                         {/* Visual hint for more info */}
-                                                        <Workflow className="w-3 h-3 text-white/20 group-hover:text-white/40 transition-colors" />
+                                                        <Workflow className="w-3 h-3 text-white/20 group-hover/workflow:text-white/40 transition-colors" />
                                                     </div>
 
                                                     {/* Custom Tooltip */}
-                                                    <div className="absolute left-0 bottom-full mb-2 w-max max-w-[200px] bg-[#111] border border-white/10 rounded-lg p-2.5 shadow-xl opacity-0 group-hover:opacity-100 transition-all pointer-events-none z-50 translate-y-2 group-hover:translate-y-0">
+                                                    <div className="absolute left-full top-1/2 -translate-y-1/2 ml-3 w-max max-w-[200px] bg-[#111] border border-white/10 rounded-lg p-2.5 shadow-xl opacity-0 group-hover/workflow:opacity-100 transition-all pointer-events-none z-50 -translate-x-2 group-hover/workflow:translate-x-0">
                                                         <div className="text-xs font-bold text-white mb-0.5 truncate">{job.workflowName}</div>
                                                         <div className="text-[10px] text-white/40 font-mono bg-white/5 px-1 rounded w-fit">
                                                             ID: {job.workflowId?.slice(0, 8)}...
@@ -131,17 +131,46 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                         </div>
                                     </td>
                                     <td className="p-4">
-                                        <div className="flex flex-col gap-1 text-xs">
+                                        <div className="flex flex-col gap-1 text-xs relative group/schedule w-fit cursor-help">
                                             {isActive && (
-                                                <div className="flex items-center gap-1 text-emerald-400/80">
+                                                <div className="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20 w-fit">
                                                     <Clock className="w-3 h-3" />
                                                     <span>
-                                                        Next: {new Date(job.nextCheckAt) < new Date() ? 'Any moment' : formatDistanceToNow(new Date(job.nextCheckAt), { addSuffix: true })}
+                                                        {new Date(job.nextCheckAt) < new Date()
+                                                            ? 'Now'
+                                                            : formatDistanceToNow(new Date(job.nextCheckAt), { addSuffix: false })
+                                                                .replace('less than a minute', '<1m')
+                                                                .replace('minutes', 'm')
+                                                                .replace('minute', 'm')
+                                                                .replace('hours', 'h')
+                                                                .replace('hour', 'h')
+                                                        }
                                                     </span>
                                                 </div>
                                             )}
-                                            <div className="text-white/30">
-                                                Expires {formatDistanceToNow(new Date(job.expiresAt), { addSuffix: true })}
+                                            <div className="text-white/20 text-[10px] px-1">
+                                                {formatDistanceToNow(new Date(job.expiresAt), { addSuffix: false })
+                                                    .replace('days', 'd')
+                                                    .replace('day', 'd')
+                                                } left
+                                            </div>
+
+                                            {/* Schedule Tooltip */}
+                                            <div className="absolute left-0 bottom-full mb-2 w-max bg-[#111] border border-white/10 rounded-lg p-3 shadow-xl opacity-0 group-hover/schedule:opacity-100 transition-all pointer-events-none z-50 translate-y-2 group-hover/schedule:translate-y-0">
+                                                <div className="space-y-1">
+                                                    <div className="text-xs text-white">
+                                                        <span className="text-white/40">Next Check:</span>{' '}
+                                                        {new Date(job.nextCheckAt).toLocaleTimeString()}
+                                                    </div>
+                                                    <div className="text-xs text-white">
+                                                        <span className="text-white/40">Expires:</span>{' '}
+                                                        {new Date(job.expiresAt).toLocaleDateString()}
+                                                    </div>
+                                                    <div className="text-xs text-white">
+                                                        <span className="text-white/40">Interval:</span>{' '}
+                                                        Every {job.checkIntervalMinutes}m
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </td>
