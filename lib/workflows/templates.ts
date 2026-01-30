@@ -45,7 +45,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
             { type: 'GENERATE_REPLIES', config: {} },
             { type: 'REVIEW_CONTENT', config: {} },
             { type: 'POST_REPLY', config: {} },
-            { type: 'TRACK_ENGAGEMENT', config: {} },
+
         ],
     },
 
@@ -63,7 +63,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
             { type: 'GENERATE_DRAFT', config: { format: 'thread' } },
             { type: 'REVIEW_CONTENT', config: {} },
             { type: 'POST_EXTENSION', config: { type: 'thread' } },
-            { type: 'TRACK_ENGAGEMENT', config: {} },
+
         ],
     },
     {
@@ -79,7 +79,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
             { type: 'GENERATE_DRAFT', config: { format: 'single' } },
             { type: 'REVIEW_CONTENT', config: {} },
             { type: 'POST_EXTENSION', config: { type: 'post' } },
-            { type: 'TRACK_ENGAGEMENT', config: {} },
+
         ],
     },
 
@@ -102,7 +102,7 @@ export const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
             { type: 'GENERATE_DRAFT', config: { format: 'single' } },
             { type: 'REVIEW_CONTENT', config: {} },
             { type: 'POST_EXTENSION', config: {} },
-            { type: 'TRACK_ENGAGEMENT', config: {} },
+
         ],
     },
 

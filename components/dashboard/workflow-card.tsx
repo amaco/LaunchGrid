@@ -46,13 +46,14 @@ function getWorkflowStatus(workflow: WorkflowCardProps['workflow']) {
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )?.[0]
 
-        if (latestTask?.status === 'completed' || latestTask?.status === 'review_needed') {
+        const hasResults = !!latestTask?.output_data && Object.keys(latestTask.output_data).length > 0
+        const isComplete = latestTask?.status === 'completed' || hasResults
+
+        if (isComplete) {
             completedSteps++
-        }
-        if (latestTask?.status === 'review_needed') {
+        } else if (latestTask?.status === 'review_needed') {
             needsReview = true
-        }
-        if (latestTask?.status === 'in_progress' || latestTask?.status === 'extension_queued') {
+        } else if (latestTask?.status === 'in_progress' || latestTask?.status === 'extension_queued') {
             inProgress = true
         }
     }

@@ -218,7 +218,7 @@ async function handleGetTask(request: NextRequest, context: APIContext) {
       url: targetUrl,
       targetUrl: targetUrl,
       // Pass through scan configuration
-      targetTweetCount: mergedConfig.targetTweetCount || 25,
+      targetTweetCount: mergedConfig.limit || mergedConfig.targetTweetCount || 25,
       keywords: mergedConfig.keywords || null,
     }
   };
@@ -255,7 +255,7 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
     .from('tasks')
     .select(`
       *,
-      step:steps(*),
+      step:steps(*, workflow:workflows(*)),
       project:projects(user_id)
     `)
     .eq('id', taskId)
@@ -267,6 +267,7 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
   }
 
   const userId = (existingTask.project as any)?.user_id || '00000000-0000-0000-0000-000000000000';
+  const workflowConfig = (existingTask.step as any)?.workflow?.config || {};
 
   // Validate task is in correct state
   const validStates = ['extension_queued', 'in_progress'];
@@ -342,6 +343,64 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
     'EXTENSION_TASK_COMPLETE',
     { taskId, success: result.success, status: newStatus }
   );
+
+  // Auto-start engagement tracking if applicable
+  // STRICT CHECK: Only if explicitly enabled (default true)
+  const shouldAutoTrack = workflowConfig.autoTrackEngagement !== false;
+
+  if (shouldAutoTrack && result.success && isPostAction && (newStatus === 'completed' || newStatus === 'review_needed')) {
+    // Note: newStatus can be review_needed if it requires post-post review? 
+    // Actually, per our logic earlier, post actions go to 'completed'. 
+    // But let's be safe: only if it *really* posted.
+
+    const postedResults = result.data?.results || [];
+    if (Array.isArray(postedResults) && postedResults.length > 0) {
+      try {
+        const { EngagementService } = await import('@/lib/services/engagement-service');
+        const engagementService = new EngagementService({
+          organizationId: userId, // Using userId as orgId for now (personal orgs)
+          userId: userId,
+          requestId: context.requestId
+        } as any); // ServiceContext type needs auth client potentially, but BaseService creates it if missing?
+        // BaseService expects full ServiceContext with db client. 
+        // We created `supabase` (admin client) above.
+
+        // Let's manually insert for speed and to avoid complex ServiceContext recreation here if possible,
+        // or better, use the service pattern properly.
+
+        // Re-using the admin client `supabase` we already have? 
+        // EngagementService constructor expects { supabase, user, userId, metadata }.
+        // We don't have a `User` object here, just `userId`.
+        // So we might need to bypass the Service class and insert directly for reliability in this API route.
+        // Yes, direct insert is safer/faster here to avoid auth roundtrips.
+
+        const jobsToInsert = postedResults
+          .filter((r: any) => r.success && r.url)
+          .map((r: any) => ({
+            project_id: existingTask.project_id,
+            source_task_id: taskId,
+            target_url: r.url,
+            status: 'active',
+            current_status: 'active',
+            started_at: new Date().toISOString(),
+            expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7 days
+            next_check_at: new Date().toISOString(),
+            check_interval_minutes: 60
+          }));
+
+        if (jobsToInsert.length > 0) {
+          const { error: jobError } = await supabase
+            .from('engagement_jobs')
+            .insert(jobsToInsert);
+
+          if (jobError) console.error('[Extension API] Failed to create tracking jobs:', jobError);
+          else console.log(`[Extension API] Spawed ${jobsToInsert.length} engagement jobs.`);
+        }
+      } catch (err) {
+        console.error('[Extension API] Error spawning engagement jobs:', err);
+      }
+    }
+  }
 
   console.log(`[Extension API] Task ${taskId} completed with status: ${newStatus}`);
 

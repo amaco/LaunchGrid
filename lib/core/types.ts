@@ -112,6 +112,10 @@ export interface WorkflowConfig {
   maxRetries: number;
   timeout: number;
   schedule?: string; // cron expression
+  feedScanCount?: number; // How many posts to scan in SCAN_FEED step
+  autoTrackEngagement?: boolean; // Whether to auto-create tracking jobs
+  aiStrictness?: 'low' | 'medium' | 'high'; // AI filtering strictness
+
   templateId?: string; // ID of template this workflow was created from
   templateName?: string; // Name of the template for display
 }
@@ -142,7 +146,7 @@ export type StepType =
   | 'POST_API'
   | 'POST_REPLY'
   | 'POST_EXTENSION'
-  | 'TRACK_ENGAGEMENT'
+
   | 'EMAIL_SEQ'
   | 'COMMUNITY_SYNC'
   | 'WAIT_APPROVAL'
@@ -184,6 +188,37 @@ export type TaskStatus =
   | 'completed'
   | 'failed'
   | 'cancelled';
+
+// ==========================================
+// ENGAGEMENT TRACKING TYPES
+// ==========================================
+
+export interface EngagementJob {
+  id: string;
+  projectId: string;
+  sourceTaskId?: string;
+  targetUrl: string;
+  status: EngagementJobStatus;
+  startedAt: Date;
+  expiresAt: Date;
+  checkIntervalMinutes: number;
+  lastCheckedAt?: Date;
+  nextCheckAt: Date;
+  lastMetrics: EngagementMetrics;
+  metricHistory: EngagementMetrics[];
+  createdAt: Date;
+}
+
+export type EngagementJobStatus = 'active' | 'completed' | 'expired' | 'stopped';
+
+export interface EngagementMetrics {
+  timestamp: string;
+  views?: number;
+  likes?: number;
+  replies?: number;
+  retweets?: number;
+  [key: string]: unknown;
+}
 
 // ==========================================
 // AI TYPES

@@ -44,6 +44,7 @@ const CONFIG = {
 // ============================================
 
 let activeTaskId = null;
+let activeTaskType = null;
 let taskTimeoutId = null;
 let currentBatchPromise = null; // For resolving sub-tasks
 
@@ -323,6 +324,7 @@ async function executeTask(task) {
     console.log(`[LaunchGrid] Executing task: ${taskId} (${taskType})`);
 
     activeTaskId = taskId;
+    activeTaskType = taskType;
 
     // Global Timeout
     taskTimeoutId = setTimeout(async () => {
@@ -350,7 +352,17 @@ async function executeTask(task) {
             await waitForTabLoad(targetTab.id);
             await sleep(3000);
         } else {
-            await chrome.tabs.update(targetTab.id, { active: true });
+            // Check if we need to redirect for SCAN_FEED
+            // If the user is on a profile page (e.g. x.com/myprofile), we MUST go to home to scrape feed
+            if (taskType === 'SCAN_FEED' && !targetTab.url.includes('/home')) {
+                const feedUrl = config.url || config.targetUrl || 'https://x.com/home';
+                console.log(`[LaunchGrid] Redirecting tab ${targetTab.id} to ${feedUrl} for scanning...`);
+                await chrome.tabs.update(targetTab.id, { url: feedUrl, active: true });
+                await waitForTabLoad(targetTab.id);
+                await sleep(3000); // Wait for feed to render
+            } else {
+                await chrome.tabs.update(targetTab.id, { active: true });
+            }
         }
 
         const scriptReady = await ensureContentScriptInjected(targetTab.id);
@@ -401,22 +413,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // If it's a batch task, the internal listener in handleBatchReplies will catch it.
         // If it's a standard task (like SCAN_FEED), we report and clear here.
         if (activeTaskId && request.taskId === activeTaskId) {
-            // Check if we are currently in a batch loop (where handleBatchReplies is running)
-            // If it's a SCAN_FEED or single page task, we report it.
-            // We can check the action of the active task if needed, but simple clear works.
 
-            // To be safe, we only CLEAR here if it's NOT a batch reply task (managed internally)
-            // But actually, we need to report SCAN results here.
+            // Only handle if it's NOT a batch type (which handle their own flows)
+            // Batch types: POST_REPLY, POST_EXTENSION
+            const isBatchType = activeTaskType === 'POST_REPLY' || activeTaskType === 'POST_EXTENSION';
 
-            // Actually, handleBatchReplies reports its OWN result.
-            // So if TASK_RESULT comes here, it's either for SCAN_FEED or for a sub-task.
-            // If it's for a sub-task, we DO NOT reportResult(taskId, ...) yet, because the batch isn't done.
-            // Wait, SCAN_FEED needs reports.
+            if (!isBatchType) {
+                // This is a single-step task (SCAN_FEED, etc.)
+                // Report the result immediately
+                console.log(`[LaunchGrid] Handling result for single-task ${activeTaskId}`);
+                // twitter.js sends { data: ... }, while batch handles might use { result: { data: ... } }
+                const resultData = request.data || request.result?.data || {};
+                reportResult(activeTaskId, resultData);
+                clearActiveTask();
+            }
         }
-
-        // Let's look at the sender to see if it's from a tab
-        // If a SCAN_FEED task finishes, it sends TASK_RESULT.
-        // If a BATCH item finishes, it SENDS TASK_RESULT for the SAME taskId.
     }
 
     sendResponse({ received: true });
@@ -424,16 +435,150 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 // ============================================
-// ALARMS / POLLING SETUP
+// ENGAGEMENT WORKER ("The Daisy Chain")
 // ============================================
 
-function initializePolling() {
-    chrome.alarms?.clear('pollTasks');
-    chrome.alarms?.create('pollTasks', { periodInMinutes: CONFIG.POLL_INTERVAL_MINUTES, delayInMinutes: 0.1 });
-    chrome.alarms?.onAlarm.addListener((alarm) => { if (alarm.name === 'pollTasks') checkTasks(); });
-    setTimeout(checkTasks, 2000);
-}
+const EngagementWorker = {
+    async init() {
+        // Ensure alarm exists
+        const alarm = await chrome.alarms.get('engagement_poll');
+        if (!alarm) {
+            chrome.alarms.create('engagement_poll', { periodInMinutes: 15 });
+        }
+    },
 
-initializePolling();
-chrome.runtime.onInstalled.addListener(() => initializePolling());
-chrome.runtime.onStartup.addListener(() => initializePolling());
+    async poll() {
+        try {
+            console.log('[Engagement] Polling for jobs...');
+            const response = await fetch(`${CONFIG.API_URL}/jobs/poll`);
+            const data = await response.json();
+
+            if (data.success && data.data?.jobs?.length > 0) {
+                console.log(`[Engagement] Found ${data.data.jobs.length} jobs.`);
+                this.processBatch(data.data.jobs); // Run async, don't block
+            }
+        } catch (err) {
+            console.error('[Engagement] Poll failed:', err);
+        }
+    },
+
+    async processBatch(jobs) {
+        console.log('[Engagement] Starting Daisy Chain...');
+        let tabId = null;
+
+        try {
+            // 1. Create single background tab
+            const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
+            tabId = tab.id;
+
+            // 2. Iterate jobs
+            for (const job of jobs) {
+                try {
+                    await this.performCheck(job, tabId);
+
+                    // Random delay between checks to be human-like
+                    const delay = 5000 + Math.random() * 5000;
+                    await sleep(delay);
+                } catch (err) {
+                    console.error(`[Engagement] Failed job ${job.id}:`, err);
+                }
+            }
+        } catch (err) {
+            console.error('[Engagement] Batch complete with errors.');
+        } finally {
+            // 3. Cleanup
+            if (tabId) {
+                chrome.tabs.remove(tabId).catch(() => { });
+            }
+            console.log('[Engagement] Batch complete. Tab closed.');
+        }
+    },
+
+    async performCheck(job, tabId) {
+        console.log(`[Engagement] Checking ${job.targetUrl}...`);
+
+        // Navigate
+        await chrome.tabs.update(tabId, { url: job.targetUrl });
+        await waitForTabLoad(tabId);
+        await sleep(3000); // Wait for dynamic content
+
+        // Scrape
+        const metrics = await chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+                // Heuristic scraping for X/Twitter
+                const getText = (selector) => {
+                    const el = document.querySelector(selector);
+                    return el ? el.innerText : null;
+                };
+
+                const parseMetric = (text) => {
+                    if (!text) return 0;
+                    const clean = text.replace(/,/g, '').toUpperCase();
+                    let val = parseFloat(clean);
+                    if (clean.includes('K')) val *= 1000;
+                    if (clean.includes('M')) val *= 1000000;
+                    return Math.floor(val);
+                };
+
+                // Try to find metric group
+                // X structure changes often, looking for aria-labels or specific test IDs
+                // Views: [href*="/analytics"] or aria-label="X Views"
+
+                // Generic attempt to find the main tweet's metrics bar
+                const viewsEl = document.querySelector('a[href*="/analytics"]');
+                const views = viewsEl ? parseMetric(viewsEl.innerText) : 0;
+
+                // Likes: [data-testid="like"]
+                const likeEl = document.querySelector('[data-testid="like"]');
+                const likes = likeEl ? parseMetric(likeEl.innerText) : 0;
+
+                // Replies: [data-testid="reply"]
+                const replyEl = document.querySelector('[data-testid="reply"]');
+                const replies = replyEl ? parseMetric(replyEl.innerText) : 0;
+
+                // Retweets: [data-testid="retweet"]
+                const rtEl = document.querySelector('[data-testid="retweet"]');
+                const retweets = rtEl ? parseMetric(rtEl.innerText) : 0;
+
+                return { views, likes, replies, retweets };
+            }
+        });
+
+        const result = metrics[0].result;
+        console.log(`[Engagement] scraped:`, result);
+
+        // Report
+        if (result) {
+            await fetch(`${CONFIG.API_URL}/jobs/${job.id}/result`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ metrics: result })
+            });
+        }
+    }
+};
+
+// ============================================
+// EVENT LISTENERS
+// ============================================
+
+chrome.runtime.onInstalled.addListener(() => {
+    console.log("[LaunchGrid] Extension Installed");
+    chrome.alarms.create('poll_task', { periodInMinutes: CONFIG.POLL_INTERVAL_MINUTES });
+    EngagementWorker.init();
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'poll_task') {
+        checkTasks();
+    } else if (alarm.name === 'engagement_poll') {
+        EngagementWorker.poll();
+    }
+});
+
+// Startup check
+chrome.runtime.onStartup.addListener(() => {
+    checkTasks();
+    EngagementWorker.poll();
+});

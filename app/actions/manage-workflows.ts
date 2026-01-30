@@ -355,3 +355,87 @@ export async function renameWorkflowAction(workflowId: string, newName: string) 
 
     return { success: true }
 }
+
+// ==========================================
+// UPDATE WORKFLOW (e.g. Settings)
+// ==========================================
+
+const updateWorkflowSchema = z.object({
+    workflowId: uuidSchema,
+    data: z.object({
+        name: z.string().min(2).max(100).optional(),
+        description: z.string().max(500).optional(),
+        config: z.any().optional(), // Flexible for now, or use workflowConfigSchema
+    })
+})
+
+export async function updateWorkflowAction(
+    workflowId: string,
+    data: {
+        name?: string
+        description?: string
+        config?: any
+    }
+) {
+    const supabase = await createClient()
+    const requestId = nanoid()
+
+    // 1. Authenticate
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new AuthenticationError('Unauthorized')
+
+    // 2. Validate inputs
+    const validated = validateInput(updateWorkflowSchema, {
+        workflowId,
+        data
+    })
+
+    // 3. Create service context (not fully used but good practice)
+    const serviceContext = createServiceContext(
+        supabase,
+        user,
+        user.id,
+        { requestId }
+    )
+
+    // 4. Update workflow using service
+    // We don't have a direct 'update' method on WorkflowService exposed yet for partial updates 
+    // that isn't 'updateExecutionState'. 
+    // But since this is a simple metadata/config update, direct DB or a new service method is fine.
+    // Let's use direct DB for now to unblock, as WorkflowService focuses on execution state.
+
+    // Check ownership first - RLS handles this
+
+    const updatePayload: any = {}
+
+    if (validated.data.name) updatePayload.name = validated.data.name
+    if (validated.data.description) updatePayload.description = validated.data.description
+    if (validated.data.config) updatePayload.config = validated.data.config
+
+    const { data: updatedWorkflow, error: updateError } = await supabase
+        .from('workflows')
+        .update(updatePayload)
+        .eq('id', validated.workflowId)
+        .select()
+        .single()
+
+    if (updateError) {
+        console.error('Failed to update workflow:', updateError)
+        throw new Error('Failed to update workflow settings')
+    }
+
+    await logUserAction(
+        {
+            organizationId: user.id,
+            userId: user.id,
+            requestId,
+        },
+        'UPDATE_WORKFLOW',
+        'workflow',
+        workflowId,
+        { changes: Object.keys(validated.data) }
+    )
+
+    revalidatePath(`/dashboard/project/${updatedWorkflow.project_id}`)
+    return updatedWorkflow
+}

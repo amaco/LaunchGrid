@@ -15,7 +15,7 @@ const STEP_TYPES = [
     { type: 'REVIEW_CONTENT', label: '👀 Human Review', tooltip: 'Pause for your approval before proceeding' },
     { type: 'POST_EXTENSION', label: '📤 Publish via Extension', tooltip: 'Post content using the browser extension (you control when it posts)' },
     { type: 'POST_REPLY', label: '↩️ Publish Reply', tooltip: 'Post reply using the browser extension (human-in-the-loop)' },
-    { type: 'TRACK_ENGAGEMENT', label: '📊 Track Engagement', tooltip: 'Monitor likes, replies, DMs from your posts' },
+
     { type: 'POST_API', label: '🔌 Publish via API', tooltip: '⚠️ Coming soon - Direct API posting (requires platform credentials)' },
 ]
 

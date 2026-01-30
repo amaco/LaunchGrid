@@ -7,11 +7,12 @@
  */
 
 import { useState, useTransition, useEffect } from 'react'
-import { X, Play, Loader2, CheckCircle, AlertCircle, Clock, Trash2, Settings, ChevronDown, ChevronRight, RotateCcw, ThumbsUp, XCircle } from 'lucide-react'
+import { X, Play, Loader2, CheckCircle, AlertCircle, Clock, Trash2, Settings, ChevronDown, ChevronRight, RotateCcw, ThumbsUp, XCircle, Blocks } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { executeWorkflowAction, rerunStepAction, approveTaskAction, cancelTaskAction } from '@/app/actions/execute-workflow'
 import { deleteWorkflowAction } from '@/app/actions/manage-workflows'
 import WorkflowEditor from './workflow-editor'
+import WorkflowSettings from './workflow-settings'
 import ContentPreview from './content-preview'
 import TaskContentEditor from './task-content-editor'
 
@@ -59,6 +60,7 @@ export default function WorkflowDetailModal({
     const [isPending, startTransition] = useTransition()
     const [isDeleting, setIsDeleting] = useState(false)
     const [showEditor, setShowEditor] = useState(false)
+    const [showSettings, setShowSettings] = useState(false)
     const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
     const [error, setError] = useState<string | null>(null)
     const router = useRouter()
@@ -188,9 +190,16 @@ export default function WorkflowDetailModal({
                     </div>
                     <div className="flex items-center gap-2 shrink-0 ml-4">
                         <button
-                            onClick={() => setShowEditor(!showEditor)}
-                            className="p-2 hover:bg-white/10 rounded-lg transition-colors text-foreground/50 hover:text-white"
-                            title="Edit steps"
+                            onClick={() => { setShowEditor(!showEditor); setShowSettings(false); }}
+                            className={`p-2 rounded-lg transition-colors ${showEditor ? 'bg-accent/20 text-accent' : 'hover:bg-white/10 text-foreground/50 hover:text-white'}`}
+                            title="Edit Steps (Builder)"
+                        >
+                            <Blocks className="w-4 h-4" />
+                        </button>
+                        <button
+                            onClick={() => { setShowSettings(!showSettings); setShowEditor(false); }}
+                            className={`p-2 rounded-lg transition-colors ${showSettings ? 'bg-accent/20 text-accent' : 'hover:bg-white/10 text-foreground/50 hover:text-white'}`}
+                            title="Workflow Settings"
                         >
                             <Settings className="w-4 h-4" />
                         </button>
@@ -220,13 +229,15 @@ export default function WorkflowDetailModal({
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-4">
-                    {showEditor ? (
+                    {showSettings ? (
+                        <WorkflowSettings workflow={workflow} onClose={() => setShowSettings(false)} />
+                    ) : showEditor ? (
                         <WorkflowEditor workflow={workflow} onClose={() => setShowEditor(false)} />
                     ) : (
                         <div className="space-y-2">
                             {sortedSteps.length === 0 ? (
                                 <div className="text-center py-8 text-foreground/40">
-                                    <p>No steps yet. Click ⚙️ to add blocks.</p>
+                                    <p>No steps yet. Click <Blocks className="w-4 h-4 inline mx-1" /> to add blocks.</p>
                                 </div>
                             ) : (
                                 sortedSteps.map((step, idx) => {
@@ -269,9 +280,12 @@ export default function WorkflowDetailModal({
                                         <div key={step.id} className={`rounded-lg border border-white/10 overflow-hidden ${isNext ? 'ring-1 ring-accent' : ''}`}>
                                             {/* Step header */}
                                             <div
-                                                className={`flex items-center gap-3 p-3 ${statusBg} cursor-pointer hover:bg-white/10 transition-colors`}
+                                                className={`flex items-center gap-3 p-3 ${statusBg} cursor-pointer hover:bg-white/10 transition-colors group`}
                                                 onClick={() => hasOutput && toggleStep(step.id)}
                                             >
+                                                <div className="shrink-0 text-xs font-mono text-foreground/20 group-hover:text-foreground/40 transition-colors w-4 text-center select-none">
+                                                    {idx + 1}
+                                                </div>
                                                 <div className="shrink-0">{statusIcon}</div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="font-medium text-sm">

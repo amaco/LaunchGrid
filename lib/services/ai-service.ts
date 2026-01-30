@@ -38,6 +38,7 @@ export interface ContentTaskContext {
   stepConfig?: Record<string, unknown>;
   previousOutput?: Record<string, unknown>;
   customPrompt?: string;
+  aiStrictness?: 'low' | 'medium' | 'high';
 }
 
 // ==========================================
@@ -478,8 +479,38 @@ Return ONLY your reply text. No quotes, no labels, just the reply.`;
         console.log('[FilterTargets] Got API key, length:', apiKey?.length || 0);
 
         // We reuse generateContent but with a specific prompt
+        // Determine strictness prompt
+        const strictness = taskContext.aiStrictness || 'medium';
+        let strictnessInstructions = '';
+
+        if (strictness === 'high') {
+          strictnessInstructions = `
+STRICTNESS LEVEL: HIGH (EXTREMELY STRICT)
+1. Select ONLY posts that are DIRECTLY related to the project.
+2. If there is ANY doubt, REJECT the post.
+3. Zero tolerance for spam, engagement bait, or tangentially related content.
+4. Better to return NOTHING than a low-quality match.
+          `;
+        } else if (strictness === 'low') {
+          strictnessInstructions = `
+STRICTNESS LEVEL: LOW (PERMISSIVE)
+1. Be open-minded. If a post is even remotely relevant, or the author is a potential lead, SELECT IT.
+2. Look for opportunities to pivot the conversation.
+3. Spam/Scams are still rejected, but "lifestyle" posts from target audience are OK.
+4. Prioritize finding at least 3-5 candidates.
+          `;
+        } else {
+          // Medium (Default)
+          strictnessInstructions = `
+STRICTNESS LEVEL: MEDIUM (BALANCED)
+1. Prioritize strong matches, but include borderline ones if they look promising.
+2. Avoid totally unrelated topics (weather, politics).
+3. Quality over quantity, but try to find at least a few good matches.
+          `;
+        }
+
         const filterPrompt = `
-You are an EXTREMELY strict content curator for "${taskContext.project.name}".
+You are a smart content curator for "${taskContext.project.name}".
 
 PROJECT INFO:
 - Name: ${taskContext.project.name}
@@ -487,13 +518,9 @@ PROJECT INFO:
 - Target Audience: ${taskContext.project.audience}
 - Pain Points We Solve: ${taskContext.project.painPoints}
 
-YOUR TASK: Select ONLY posts that are DIRECTLY RELEVANT to our product/service.
+YOUR TASK: Select the posts that are MOST RELEVANT to our product/service.
 
-STRICT RULES:
-1. A post is relevant ONLY IF it discusses topics related to: ${taskContext.project.description}
-2. IMMEDIATELY REJECT any post about: weather, sports, politics, travel, food, memes, or generic life updates.
-3. IMMEDIATELY REJECT any off-topic engagement bait (high likes ≠ relevant).
-4. The author must be talking about something our product can help with.
+${strictnessInstructions}
 
 EXAMPLES of RELEVANT for a "Trading Journal App":
 - "I keep making the same mistakes in my trades"
@@ -508,9 +535,9 @@ EXAMPLES of IRRELEVANT (REJECT THESE):
 Analyze these posts:
 ${JSON.stringify(items.slice(0, 20), null, 2)}
 
-Return ONLY a valid JSON array (max 5 items). If fewer than 5 are relevant, return fewer.
-            Format: [{ "id": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
-            If NO posts are relevant, return an empty array: []
+Return ONLY a valid JSON array (max 5 items).
+Format: [{ "id": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
+If NO posts are relevant, return an empty array: []
             `;
 
         console.log('[FilterTargets] Calling AI with prompt length:', filterPrompt.length);
@@ -549,6 +576,17 @@ Return ONLY a valid JSON array (max 5 items). If fewer than 5 are relevant, retu
           } else {
             throw new Error("No JSON array found in response");
           }
+
+          // If AI was too strict and returned nothing, fallback to top 3
+          // This prevents "empty step" UI issues while preserving flow
+          if (selectedItems.length === 0 && items.length > 0) {
+            console.warn('[FilterTargets] AI returned 0 items. Falling back to top 3.');
+            selectedItems = items.slice(0, 3).map(item => ({
+              ...item,
+              reason: "⚠️ Low relevance (Auto-selected as fallback)"
+            }));
+          }
+
         } catch (e) {
           console.error("Failed to parse filter JSON. Raw response:", response.content);
           console.warn("Falling back to top 5 due to parse error", e);

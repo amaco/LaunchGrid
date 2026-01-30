@@ -105,6 +105,9 @@ export const workflowConfigSchema = z.object({
   maxRetries: z.number().int().min(0).max(10).default(3),
   timeout: z.number().int().min(1000).max(3600000).default(30000), // 1s to 1h
   schedule: z.string().optional(), // cron expression
+  feedScanCount: z.number().int().min(5).max(100).default(20),
+  autoTrackEngagement: z.boolean().default(true),
+  aiStrictness: z.enum(['low', 'medium', 'high']).default('medium'),
 });
 
 export const createWorkflowSchema = z.object({
@@ -140,7 +143,7 @@ export const stepTypeSchema = z.enum([
   'POST_API',
   'POST_REPLY',
   'POST_EXTENSION',
-  'TRACK_ENGAGEMENT',
+
   'EMAIL_SEQ',
   'COMMUNITY_SYNC',
   'WAIT_APPROVAL',

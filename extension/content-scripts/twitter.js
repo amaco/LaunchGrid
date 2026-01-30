@@ -286,6 +286,8 @@ async function scanFeed(taskId, config) {
         sendResult(taskId, { found_items: results.slice(0, targetCount), summary: `Found ${results.length} tweets` });
     } catch (err) {
         sendResult(taskId, { error: 'SCAN_FAILED', summary: err.message }, true);
+    } finally {
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
     }
 }
 
