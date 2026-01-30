@@ -352,15 +352,24 @@ async function executeTask(task) {
             await waitForTabLoad(targetTab.id);
             await sleep(3000);
         } else {
-            // Check if we need to redirect for SCAN_FEED
-            // If the user is on a profile page (e.g. x.com/myprofile), we MUST go to home to scrape feed
-            if (taskType === 'SCAN_FEED' && !targetTab.url.includes('/home')) {
+            // RELOAD/REDIRECT LOGIC for SCAN_FEED
+            // User requested explicit refresh to ensure we start from top
+            if (taskType === 'SCAN_FEED') {
                 const feedUrl = config.url || config.targetUrl || 'https://x.com/home';
-                console.log(`[LaunchGrid] Redirecting tab ${targetTab.id} to ${feedUrl} for scanning...`);
-                await chrome.tabs.update(targetTab.id, { url: feedUrl, active: true });
+
+                if (!targetTab.url.includes('/home')) {
+                    console.log(`[LaunchGrid] Redirecting tab ${targetTab.id} to ${feedUrl}...`);
+                    await chrome.tabs.update(targetTab.id, { url: feedUrl, active: true });
+                } else {
+                    console.log(`[LaunchGrid] Refreshing tab ${targetTab.id} to reset scroll/feed...`);
+                    await chrome.tabs.update(targetTab.id, { active: true });
+                    await chrome.tabs.reload(targetTab.id);
+                }
+
                 await waitForTabLoad(targetTab.id);
                 await sleep(3000); // Wait for feed to render
             } else {
+                // For other tasks, just focus the existing tab
                 await chrome.tabs.update(targetTab.id, { active: true });
             }
         }
