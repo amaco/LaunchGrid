@@ -356,24 +356,7 @@ async function handleSubmitResult(request: NextRequest, context: APIContext) {
     const postedResults = result.data?.results || [];
     if (Array.isArray(postedResults) && postedResults.length > 0) {
       try {
-        const { EngagementService } = await import('@/lib/services/engagement-service');
-        const engagementService = new EngagementService({
-          organizationId: userId, // Using userId as orgId for now (personal orgs)
-          userId: userId,
-          requestId: context.requestId
-        } as any); // ServiceContext type needs auth client potentially, but BaseService creates it if missing?
-        // BaseService expects full ServiceContext with db client. 
-        // We created `supabase` (admin client) above.
-
-        // Let's manually insert for speed and to avoid complex ServiceContext recreation here if possible,
-        // or better, use the service pattern properly.
-
-        // Re-using the admin client `supabase` we already have? 
-        // EngagementService constructor expects { supabase, user, userId, metadata }.
-        // We don't have a `User` object here, just `userId`.
-        // So we might need to bypass the Service class and insert directly for reliability in this API route.
-        // Yes, direct insert is safer/faster here to avoid auth roundtrips.
-
+        // Direct insert to avoid complex ServiceContext recreation
         const jobsToInsert = postedResults
           .filter((r: any) => r.success && r.url)
           .map((r: any) => ({
