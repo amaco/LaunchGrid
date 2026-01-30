@@ -400,10 +400,15 @@ Return ONLY your reply text. No quotes, no labels, just the reply.`;
               targetId: target.id,
               reply: draft.content,
               url: (target as any).url, // Pass through URL for extension
-              author: target.author
+              author: target.author,
+              original_text: (target as any).text // Pass original text for context
             };
           })
         );
+
+        if (replies.length > 0) {
+          console.log('[GenerateReplies] First reply output:', JSON.stringify(replies[0], null, 2));
+        }
 
         const duration = Date.now() - startTime;
 

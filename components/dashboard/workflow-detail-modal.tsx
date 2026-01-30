@@ -434,6 +434,7 @@ export default function WorkflowDetailModal({
                                                         />
                                                     ) : (
                                                         <ContentPreview
+                                                            taskId={latestTask?.id}
                                                             content={
                                                                 latestTask?.output_data?.replies ||
                                                                 latestTask?.output_data?.selected_items ||
@@ -477,7 +478,7 @@ export default function WorkflowDetailModal({
                 )}
 
                 {/* Blocked on review - subtle info message */}
-                {!showEditor && nextStepIndex === -2 && !workflow.steps.some(s => s.type === 'POST_REPLY' && s.tasks?.some(t => t.output_data?.results)) && (
+                {!showEditor && nextStepIndex === -2 && !workflow.steps?.some(s => s.type === 'POST_REPLY' && s.tasks?.some(t => t.output_data?.results)) && (
                     <div className="p-4 border-t border-white/10 bg-amber-500/10 shrink-0 text-center">
                         <div className="flex items-center justify-center gap-2 text-amber-400 text-sm">
                             <AlertCircle className="w-4 h-4" />

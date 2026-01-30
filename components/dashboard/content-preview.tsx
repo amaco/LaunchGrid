@@ -1,14 +1,30 @@
+'use client'
 
-import React from 'react';
+import React, { useTransition } from 'react';
+import { toggleItemSelectionAction } from '@/app/actions/manage-workflows';
 
 interface ContentPreviewProps {
     content: any;
     title?: string;
     type?: string;
+    taskId?: string;
 }
 
-export default function ContentPreview({ content, title, type }: ContentPreviewProps) {
+export default function ContentPreview({ content, title, type, taskId }: ContentPreviewProps) {
+    const [isPending, startTransition] = useTransition();
+
     if (!content) return null;
+
+    const handleToggle = (idx: number, itemType: 'target' | 'reply') => {
+        if (!taskId) return;
+        startTransition(async () => {
+            try {
+                await toggleItemSelectionAction(taskId, idx, itemType);
+            } catch (e) {
+                console.error('Failed to toggle selection', e);
+            }
+        });
+    }
 
     // Handle Batch Post Results
     if (typeof content === 'object' && content !== null && (content as any).results && (content as any).summary) {
@@ -38,18 +54,59 @@ export default function ContentPreview({ content, title, type }: ContentPreviewP
         );
     }
 
-    // Handle Array content (e.g. found_items)
+    // Handle Array content (Targets or Replies)
     if (Array.isArray(content)) {
         return (
             <div className="mt-2 bg-white/5 p-4 rounded-xl border border-white/10 text-xs shadow-inner">
                 {title && <div className="font-bold text-white mb-3 text-sm border-b border-white/5 pb-2 uppercase tracking-tight">{title}</div>}
                 <div className="space-y-3">
-                    {content.map((item: any, idx) => (
-                        <div key={idx} className="bg-white/5 p-2 rounded border border-white/5">
-                            {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author}</div>}
-                            <div className="text-foreground/80 leading-relaxed">{item.text || JSON.stringify(item)}</div>
-                        </div>
-                    ))}
+                    {content.map((item: any, idx) => {
+                        const isReply = item.reply !== undefined;
+                        const isTarget = item.reason !== undefined;
+                        const isSelectable = taskId && (isReply || isTarget);
+                        const isSelected = item.selected !== false; // Default to true
+
+                        return (
+                            <div key={idx} className={`relative bg-white/5 rounded border transition-all ${isSelected ? 'border-white/10 opacity-100' : 'border-white/5 opacity-50'}`}>
+
+                                {/* Header / Selection */}
+                                <div className="flex items-start gap-3 p-3">
+                                    {/* Checkbox */}
+                                    {isSelectable && (
+                                        <div className="mt-0.5 shrink-0">
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => handleToggle(idx, isReply ? 'reply' : 'target')}
+                                                disabled={isPending}
+                                                className="w-4 h-4 rounded border-white/20 bg-black/50 accent-accent cursor-pointer disabled:opacity-50"
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2 w-full min-w-0">
+                                        {/* Author / Metadata */}
+                                        <div className="flex items-center gap-2">
+                                            {item.author && <span className="text-blue-400 font-bold">@{item.author}</span>}
+                                            {item.reason && <span className="text-[10px] px-1.5 py-0.5 bg-white/10 rounded text-foreground/60 truncate max-w-[200px]">{item.reason}</span>}
+                                        </div>
+
+                                        {/* Original Text (Muted for Reply Context) */}
+                                        {isReply && item.original_text && (
+                                            <div className="pl-2 border-l-2 border-white/10 text-foreground/40 italic mb-2 py-1">
+                                                "{item.original_text.length > 140 ? item.original_text.substring(0, 140) + '...' : item.original_text}"
+                                            </div>
+                                        )}
+
+                                        {/* Main Content */}
+                                        <div className="text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                                            {item.reply || item.text || JSON.stringify(item)}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
         );

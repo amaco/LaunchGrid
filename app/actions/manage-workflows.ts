@@ -439,3 +439,64 @@ export async function updateWorkflowAction(
     revalidatePath(`/dashboard/project/${updatedWorkflow.project_id}`)
     return updatedWorkflow
 }
+
+// ==========================================
+// TOGGLE ITEM SELECTION (Checkbox Logic)
+// ==========================================
+
+export async function toggleItemSelectionAction(
+    taskId: string,
+    itemIndex: number,
+    itemType: 'target' | 'reply'
+) {
+    const supabase = await createClient()
+
+    // 1. Auth check
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new AuthenticationError('Unauthorized')
+
+    // 2. Fetch task
+    const { data: task, error: fetchError } = await supabase
+        .from('tasks')
+        .select(`*, project:projects(user_id)`)
+        .eq('id', taskId)
+        .single()
+
+    if (fetchError || !task) throw new Error('Task not found')
+    if (task.project.user_id !== user.id) throw new AuthenticationError('Unauthorized')
+
+    // 3. Update Data
+    const outputData = task.output_data as any || {}
+    let items = []
+    let key = ''
+
+    if (itemType === 'target') {
+        key = 'selected_items'
+        items = outputData.selected_items || []
+    } else if (itemType === 'reply') {
+        key = 'replies'
+        items = outputData.replies || []
+    }
+
+    if (!items[itemIndex]) throw new Error('Item not found')
+
+    // Toggle selected state (default to true if undefined)
+    const currentSelected = items[itemIndex].selected !== false
+    items[itemIndex].selected = !currentSelected
+
+    // 4. Save
+    const { error: updateError } = await supabase
+        .from('tasks')
+        .update({
+            output_data: {
+                ...outputData,
+                [key]: items
+            }
+        })
+        .eq('id', taskId)
+
+    if (updateError) throw new Error('Failed to update selection')
+
+    revalidatePath(`/dashboard/project/${task.project_id}`)
+    return { success: true }
+}

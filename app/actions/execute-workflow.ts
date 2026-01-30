@@ -227,7 +227,9 @@ export async function executeWorkflowAction(workflowId: string) {
             }
 
             case 'GENERATE_REPLIES': {
-                const targets = (previousStepOutput as any)?.selected_items || []
+                const allTargets = (previousStepOutput as any)?.selected_items || []
+                // Filter out items user unchecked
+                const targets = allTargets.filter((t: any) => t.selected !== false)
 
                 if (targets.length === 0) {
                     throw new StepExecutionError(
@@ -392,9 +394,14 @@ export async function approveTaskAction(taskId: string) {
         .single()
 
     if (step && (step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY')) {
+        // Filter out unchecked replies before queueing
+        const rawReplies = (task.outputData as any)?.replies || []
+        const approvedReplies = rawReplies.filter((r: any) => r.selected !== false)
+
         // Queue for extension instead of completing
         await taskService.queueForExtension(taskId, {
             ...task.outputData,
+            replies: approvedReplies,
             approvedAt: new Date().toISOString()
         })
     } else {

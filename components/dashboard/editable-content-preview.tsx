@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useTransition } from 'react'
 import { Pencil, Save, X, Check } from 'lucide-react'
+import { toggleItemSelectionAction } from '@/app/actions/manage-workflows'
 
 interface EditableContentPreviewProps {
     taskId: string
@@ -18,6 +19,7 @@ export default function EditableContentPreview({
     type,
     onSave
 }: EditableContentPreviewProps) {
+    const [isPending, startTransition] = useTransition()
     const [isEditing, setIsEditing] = useState(false)
     // Helper to strip surrounding quotes if present (fixes over-stringified AI output)
     const cleanString = (str: any): string => {
@@ -151,17 +153,51 @@ export default function EditableContentPreview({
                     </div>
                 )}
                 <div className="space-y-3">
-                    {content.map((item: any, idx) => (
-                        <div key={idx} className="bg-white/5 p-2 rounded border border-white/5">
-                            {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author.replace(/^@/, '')}</div>}
-                            <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{cleanString(item.reply || item.text || item.content || JSON.stringify(item))}</div>
-                            {item.reason && (
-                                <div className="text-green-400/70 text-[10px] mt-1 italic">
-                                    → {item.reason}
+                    {content.map((item: any, idx) => {
+                        const isSelected = item.selected !== false
+                        const isReply = item.reply !== undefined
+                        const isTarget = item.reason !== undefined
+
+                        return (
+                            <div key={idx} className={`relative bg-white/5 p-3 rounded border transition-all flex gap-3 ${isSelected ? 'border-white/5 opacity-100' : 'border-white/5 opacity-40'}`}>
+                                {/* Checkbox */}
+                                <div className="mt-1 shrink-0">
+                                    <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={(e) => {
+                                            startTransition(async () => {
+                                                try {
+                                                    await toggleItemSelectionAction(taskId, idx, isReply ? 'reply' : 'target')
+                                                } catch (err) {
+                                                    console.error('Failed to toggle', err)
+                                                }
+                                            })
+                                        }}
+                                        className="w-4 h-4 rounded border-white/20 bg-black/50 accent-accent cursor-pointer"
+                                    />
                                 </div>
-                            )}
-                        </div>
-                    ))}
+
+                                <div className="flex-1 min-w-0">
+                                    {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author.replace(/^@/, '')}</div>}
+
+                                    {/* Original Text Context */}
+                                    {item.original_text && (
+                                        <div className="pl-2 border-l-2 border-white/10 text-foreground/40 italic mb-2 py-1 text-[10px] leading-relaxed">
+                                            "{item.original_text.length > 150 ? item.original_text.substring(0, 150) + '...' : item.original_text}"
+                                        </div>
+                                    )}
+
+                                    <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{cleanString(item.reply || item.text || item.content || JSON.stringify(item))}</div>
+                                    {item.reason && (
+                                        <div className="text-green-400/70 text-[10px] mt-1 italic">
+                                            → {item.reason}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
         )
