@@ -351,42 +351,37 @@ export class AIService extends BaseService {
               await new Promise((resolve) => setTimeout(resolve, 200 * index));
             }
 
-            // Custom prompt for natural, curiosity-generating replies
-            const replyPrompt = `You're replying to a tweet on X/Twitter. Your goal is to add value AND subtly create curiosity.
+            // Custom prompt for natural, high-context engagement
+            const replyPrompt = `You are an experienced colleague/peer in this niche. You are reacting to a post on X (Twitter).
+            
+GOAL: Engage deeply with the specific content of the tweet. Sound human, grounded, and insightful.
 
 ORIGINAL TWEET by @${target.author || 'user'}:
 "${target.text}"
 
-YOUR CONTEXT (don't mention directly):
-- You use a tool that helps with: ${taskContext.project.description}
-- You understand these struggles: ${taskContext.project.painPoints}
+YOUR BACKGROUND / WORLDVIEW:
+- You believe in: ${taskContext.project.description}
+- You validate problems like: ${taskContext.project.painPoints}
 
-STRATEGY - CREATE CURIOSITY:
-The goal is to make readers think "wait, what tool/method is this person using?" 
-Share your RESULTS or EXPERIENCE in a way that makes people curious to ask you.
-NEVER mention the product name. NEVER say "I use a tool that..." 
+INSTRUCTIONS:
+1. READ closely. Reference a specific keyword or concept from the tweet (e.g., if they mention "Tuesday", mention "Tuesday" or time-of-week).
+2. VALIDATE their experience. Don't just say "I agree". Add a nuance.
+3. SUBTLY bridge to your worldview. Share a hard-learned lesson or a habit that helped you, but keep it casual.
+4. NO "Salesy" hooks. Do NOT try to "create curiosity" by being vague. Be helpful first.
+5. NO robotic phrases like "I understand your sentiment" or "It is crucial to...". Speak like a person on Twitter.
+6. Length: 1-2 conversational sentences. Lowercase beginning is okay if it fits the vibe.
 
-REPLY RULES:
-1. Share a genuine insight or personal experience related to the topic
-2. Hint at a method/system that helped you - but DON'T name it
-3. Be specific with results when possible ("cut my revenge trades by 80%")
-4. Sound like a regular trader sharing what worked for them
-5. Keep it SHORT - 1-2 sentences. Natural, conversational.
-6. NO emojis or max 1. More looks fake/spammy.
-7. End in a way that invites curiosity or follow-up
+BAD EXAMPLES (Too robotic/salesy):
+- "I totally agree! I used to struggle until I found a secret method."
+- "Great post! Consistency is key."
 
-EXAMPLES THAT CREATE CURIOSITY:
-- "Same struggle here until I started tracking my entry times. Patterns became obvious after a few weeks."
-- "The waiting game is real. I finally started logging when I take trades vs when I should - eye-opening data."
-- "This. Took me 6 months of journaling to realize my best setups are always between 9:50-10:10."
+GOOD EXAMPLES (Human, Specific):
+- "The midday chop is brutal. I mostly stopped trading past 11am unless my setup is perfect, saved me so much headache."
+- "Man, that level hold was clean. Usually I get stopped out there if I'm not watching the volume delta."
+- "Actual data tracking is the only thing that fixed this for me. Feelings lie, the spreadsheet doesn't."
 
-BAD EXAMPLES (don't do this):
-- "Try TradeRonin!" (naming product = spam)
-- "I use an AI tool that..." (too obvious)
-- "Great post! 🔥📈" (no value, just noise)
-- "Have you tried journaling with [product]?" (direct pitch)
+GENERATE REPLY:`;
 
-Return ONLY your reply text. No quotes, no labels, just the reply.`;
 
             const replyContext: ContentTaskContext = {
               ...taskContext,
@@ -405,10 +400,6 @@ Return ONLY your reply text. No quotes, no labels, just the reply.`;
             };
           })
         );
-
-        if (replies.length > 0) {
-          console.log('[GenerateReplies] First reply output:', JSON.stringify(replies[0], null, 2));
-        }
 
         const duration = Date.now() - startTime;
 
@@ -490,26 +481,26 @@ Return ONLY your reply text. No quotes, no labels, just the reply.`;
 
         if (strictness === 'high') {
           strictnessInstructions = `
-STRICTNESS LEVEL: HIGH (EXTREMELY STRICT)
+STRICTNESS LEVEL: HIGH(EXTREMELY STRICT)
 1. Select ONLY posts that are DIRECTLY related to the project.
 2. If there is ANY doubt, REJECT the post.
 3. Zero tolerance for spam, engagement bait, or tangentially related content.
-4. Better to return NOTHING than a low-quality match.
+4. Better to return NOTHING than a low - quality match.
           `;
         } else if (strictness === 'low') {
           strictnessInstructions = `
-STRICTNESS LEVEL: LOW (PERMISSIVE)
-1. Be open-minded. If a post is even remotely relevant, or the author is a potential lead, SELECT IT.
+STRICTNESS LEVEL: LOW(PERMISSIVE)
+            1. Be open - minded.If a post is even remotely relevant, or the author is a potential lead, SELECT IT.
 2. Look for opportunities to pivot the conversation.
-3. Spam/Scams are still rejected, but "lifestyle" posts from target audience are OK.
-4. Prioritize finding at least 3-5 candidates.
+3. Spam / Scams are still rejected, but "lifestyle" posts from target audience are OK.
+4. Prioritize finding at least 3 - 5 candidates.
           `;
         } else {
           // Medium (Default)
           strictnessInstructions = `
-STRICTNESS LEVEL: MEDIUM (BALANCED)
-1. Prioritize strong matches, but include borderline ones if they look promising.
-2. Avoid totally unrelated topics (weather, politics).
+STRICTNESS LEVEL: MEDIUM(BALANCED)
+            1. Prioritize strong matches, but include borderline ones if they look promising.
+2. Avoid totally unrelated topics(weather, politics).
 3. Quality over quantity, but try to find at least a few good matches.
           `;
         }
@@ -518,32 +509,32 @@ STRICTNESS LEVEL: MEDIUM (BALANCED)
 You are a smart content curator for "${taskContext.project.name}".
 
 PROJECT INFO:
-- Name: ${taskContext.project.name}
-- Description: ${taskContext.project.description}
-- Target Audience: ${taskContext.project.audience}
-- Pain Points We Solve: ${taskContext.project.painPoints}
+              - Name: ${taskContext.project.name}
+            - Description: ${taskContext.project.description}
+            - Target Audience: ${taskContext.project.audience}
+            - Pain Points We Solve: ${taskContext.project.painPoints}
 
-YOUR TASK: Select the posts that are MOST RELEVANT to our product/service.
+YOUR TASK: Select the posts that are MOST RELEVANT to our product / service.
 
-${strictnessInstructions}
+              ${strictnessInstructions}
 
 EXAMPLES of RELEVANT for a "Trading Journal App":
-- "I keep making the same mistakes in my trades"
-- "Need to track my trading performance better"
-- "Looking for ways to improve my trading discipline"
+              - "I keep making the same mistakes in my trades"
+                - "Need to track my trading performance better"
+                - "Looking for ways to improve my trading discipline"
 
-EXAMPLES of IRRELEVANT (REJECT THESE):
-- "Weather update: it escalated fast" (weather, irrelevant)
-- "The streets of X university" (travel/lifestyle, irrelevant)
-- "Best 4 hours learning to build" (generic, no connection to our app)
+EXAMPLES of IRRELEVANT(REJECT THESE):
+            - "Weather update: it escalated fast"(weather, irrelevant)
+              - "The streets of X university"(travel / lifestyle, irrelevant)
+              - "Best 4 hours learning to build"(generic, no connection to our app)
 
 Analyze these posts:
 ${JSON.stringify(items.slice(0, 20), null, 2)}
 
-Return ONLY a valid JSON array (max 5 items).
-Format: [{ "id": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
+Return ONLY a valid JSON array(max 5 items).
+              Format: [{ "id": "...", "reason": "Why this is relevant to ${taskContext.project.name}" }]
 If NO posts are relevant, return an empty array: []
-            `;
+              `;
 
         console.log('[FilterTargets] Calling AI with prompt length:', filterPrompt.length);
         const response = await provider.generateContent({
@@ -593,9 +584,6 @@ If NO posts are relevant, return an empty array: []
           }
 
         } catch (e) {
-          console.error("Failed to parse filter JSON. Raw response:", response.content);
-          console.warn("Falling back to top 5 due to parse error", e);
-
           // Fallback but mark them as potentially unfiltered
           selectedItems = items.slice(0, 5).map(item => ({
             ...item,
