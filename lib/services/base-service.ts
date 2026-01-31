@@ -54,6 +54,12 @@ export abstract class BaseService {
    * Verify project access (ensure project belongs to tenant)
    */
   protected async verifyProjectAccess(projectId: string): Promise<void> {
+    // Service Account Bypass: The extension worker runs as a system user
+    // It is authorized to access any project it was given a job for (jobs are created by owners).
+    if (this.userId === 'extension-service-account' || this.organizationId === 'system') {
+      return;
+    }
+
     const { data, error } = await this.db
       .from('projects')
       .select('id')

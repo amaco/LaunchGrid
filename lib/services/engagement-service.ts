@@ -144,7 +144,8 @@ export class EngagementService extends BaseService {
             const { data, error } = await this.db
                 .from('engagement_jobs')
                 .update({
-                    next_check_at: new Date().toISOString(), // NOW
+                    // Set to 1 minute in the past to ensure it's picked up immediately by the LTE query
+                    next_check_at: new Date(Date.now() - 60000).toISOString(),
                     current_status: 'active' // Reactivate if stopped
                 })
                 .eq('id', id)

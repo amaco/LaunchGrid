@@ -33,6 +33,7 @@ export interface APIContext {
   organizationId: string;
   ipAddress: string;
   userAgent: string;
+  params?: any;
 }
 
 export type APIHandler = (
@@ -233,10 +234,16 @@ export function withAuth(handler: APIHandler, options?: {
   const requireAuth = options?.requireAuth !== false; // Default to true
   const rateLimitType = options?.rateLimit || 'default';
 
-  return async (request: NextRequest): Promise<NextResponse> => {
+  return async (request: NextRequest, nextContext: { params?: Promise<any> | any }): Promise<NextResponse> => {
     const requestId = nanoid();
     const ipAddress = getClientIP(request);
     const userAgent = getUserAgent(request);
+
+    // Resolve params if they are a promise (Next.js 15+)
+    let params = nextContext?.params;
+    if (params && typeof params.then === 'function') {
+      params = await params;
+    }
 
     try {
       // CORS headers
@@ -303,6 +310,7 @@ export function withAuth(handler: APIHandler, options?: {
           organizationId: auth.organizationId,
           ipAddress,
           userAgent,
+          params
         };
       } else {
         context = {
@@ -311,6 +319,7 @@ export function withAuth(handler: APIHandler, options?: {
           organizationId: '00000000-0000-0000-0000-000000000000', // Use valid UUID for public
           ipAddress,
           userAgent,
+          params
         };
       }
 

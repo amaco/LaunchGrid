@@ -459,14 +459,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 const EngagementWorker = {
     async init() {
-        // Ensure alarm exists
-        const alarm = await chrome.alarms.get('engagement_poll');
-        if (!alarm) {
-            chrome.alarms.create('engagement_poll', { periodInMinutes: 15 });
-        }
+        // Always create/overwrite the alarm to ensure we have the latest interval
+        chrome.alarms.create('engagement_poll', { periodInMinutes: 0.5 }); // 30 seconds
     },
 
+    isProcessing: false,
+
     async poll() {
+        if (this.isProcessing) {
+            console.log('[Engagement] Batch in progress. Skipping poll.');
+            return;
+        }
+
         try {
             console.log('[Engagement] Polling for jobs...');
             const response = await fetch(`${CONFIG.API_URL}/jobs/poll`, {
@@ -476,7 +480,7 @@ const EngagementWorker = {
 
             if (data.success && data.data?.jobs?.length > 0) {
                 console.log(`[Engagement] Found ${data.data.jobs.length} jobs.`);
-                this.processBatch(data.data.jobs); // Run async, don't block
+                this.processBatch(data.data.jobs); // Managed by lock
             }
         } catch (err) {
             console.error('[Engagement] Poll failed:', err);
@@ -484,6 +488,9 @@ const EngagementWorker = {
     },
 
     async processBatch(jobs) {
+        if (this.isProcessing) return;
+        this.isProcessing = true;
+
         console.log('[Engagement] Starting Daisy Chain...');
         let tabId = null;
 
@@ -512,6 +519,7 @@ const EngagementWorker = {
                 chrome.tabs.remove(tabId).catch(() => { });
             }
             console.log('[Engagement] Batch complete. Tab closed.');
+            this.isProcessing = false;
         }
     },
 
