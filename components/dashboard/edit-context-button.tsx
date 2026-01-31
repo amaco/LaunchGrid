@@ -33,7 +33,7 @@ export default function EditContextButton({ project }: { project: any }) {
         <>
             <button
                 onClick={() => setIsOpen(true)}
-                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 border border-white/5 hover:border-white/20"
+                className="bg-white/5 hover:bg-white/10 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 border border-white/5 hover:border-white/20"
             >
                 <Pencil className="w-3 h-3" /> Edit Context
             </button>

@@ -200,8 +200,33 @@ async function performSingleReply(taskId, config) {
     sendProgress(taskId, "Submitting post...");
     replyBtn.click();
 
-    await sleep(3000);
-    return true;
+    // Reset this flag to ensure we capture the *new* toast
+    // Wait for "Your post was sent" toast with "View" link
+    sendProgress(taskId, "Waiting for success confirmation...");
+
+    try {
+        // Look for the "View" link in the toast
+        // Twitter toasts usually have role="alert" or data-testid="toast"
+        // The link inside usually points to the new status
+        const viewLinkValues = ['a[href*="/status/"]', 'div[role="alert"] a[href*="/status/"]'];
+        const viewLink = await waitForElement(viewLinkValues, 5000);
+
+        if (viewLink) {
+            const replyUrl = viewLink.href;
+            console.log("[LaunchGrid] Captured reply URL:", replyUrl);
+            return {
+                success: true,
+                url: replyUrl,
+                results: [{ success: true, url: replyUrl }] // Format for backend
+            };
+        }
+    } catch (e) {
+        console.warn("[LaunchGrid] Could not capture reply URL, falling back to success without URL:", e);
+    }
+
+    // Fallback: Return success (we clicked reply) but no URL (tracking will use original post)
+    await sleep(2000);
+    return { success: true, results: [{ success: true }] };
 }
 
 // ============================================
@@ -306,7 +331,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // Direct action handlers
     if (request.action === 'POST_SINGLE_REPLY') {
         performSingleReply(request.taskId, request.config)
-            .then(() => sendResult(request.taskId, { success: true }))
+            .then(result => sendResult(request.taskId, result))
             .catch(err => sendResult(request.taskId, { error: 'POST_FAILED', summary: err.message }, true));
     }
     else if (request.action === 'SCAN_FEED') {

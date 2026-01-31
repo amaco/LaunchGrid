@@ -182,6 +182,23 @@ export class EngagementService extends BaseService {
     }
 
     /**
+     * Delete a job
+     */
+    async deleteJob(id: string): Promise<void> {
+        return this.execute('deleteJob', async () => {
+            // Verify existence and ownership
+            const job = await this.getById(id);
+
+            const { error } = await this.db
+                .from('engagement_jobs')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw new DatabaseError(error.message, 'DELETE');
+        });
+    }
+
+    /**
      * Get job by ID with ownership check
      */
     async getById(id: string): Promise<EngagementJob> {

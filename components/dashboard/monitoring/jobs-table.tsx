@@ -2,8 +2,8 @@
 
 import { useState, useTransition } from 'react'
 import { EngagementJob } from '@/lib/core/types'
-import { triggerJobAction, stopJobAction } from '@/app/actions/manage-jobs'
-import { Play, Square, ExternalLink, Loader2, Clock, CheckCircle, AlertCircle, BarChart2, Workflow } from 'lucide-react'
+import { triggerJobAction, stopJobAction, deleteJobAction } from '@/app/actions/manage-jobs'
+import { Play, Square, ExternalLink, Loader2, Clock, CheckCircle, AlertCircle, BarChart2, Workflow, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
 interface JobsTableProps {
@@ -54,7 +54,7 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                             <th className="p-4 font-medium text-white/60">Status</th>
                             <th className="p-4 font-medium text-white/60">Metrics</th>
                             <th className="p-4 font-medium text-white/60">Schedule</th>
-                            <th className="p-4 font-medium text-white/60 text-right">Actions</th>
+                            <th className="p-4 font-medium text-white/60 text-center w-[140px]">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -133,8 +133,8 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                     <td className="p-4">
                                         <div className="flex flex-col gap-1 text-xs relative group/schedule w-fit cursor-help">
                                             {isActive && (
-                                                <div className="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20 w-fit">
-                                                    <Clock className="w-3 h-3" />
+                                                <div className="flex items-center gap-1.5 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded-md border border-emerald-500/20 w-fit whitespace-nowrap">
+                                                    <Clock className="w-3 h-3 flex-shrink-0" />
                                                     <span>
                                                         {new Date(job.nextCheckAt) < new Date()
                                                             ? 'Now'
@@ -144,6 +144,7 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                                                 .replace('minute', 'm')
                                                                 .replace('hours', 'h')
                                                                 .replace('hour', 'h')
+                                                                .replace('about ', '')
                                                         }
                                                     </span>
                                                 </div>
@@ -174,8 +175,8 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                             </div>
                                         </div>
                                     </td>
-                                    <td className="p-4 text-right">
-                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <td className="p-4 text-center">
+                                        <div className="flex items-center justify-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
                                             {isActive ? (
                                                 <>
                                                     <button
@@ -205,6 +206,22 @@ export function JobsTable({ jobs, projectId }: JobsTableProps) {
                                                     <Play className="w-4 h-4" />
                                                 </button>
                                             )}
+                                            <button
+                                                onClick={() => {
+                                                    if (confirm('Delete this tracking job?')) {
+                                                        setActionId(job.id) // Fixed typo here
+                                                        startTransition(async () => {
+                                                            await deleteJobAction(job.id, projectId)
+                                                            setActionId(null)
+                                                        })
+                                                    }
+                                                }}
+                                                disabled={isBusy}
+                                                className="p-1.5 hover:bg-red-500/20 rounded-md text-white/40 hover:text-red-400 transition-colors"
+                                                title="Delete Job"
+                                            >
+                                                {isBusy && actionId === job.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                            </button>
                                         </div>
                                     </td>
                                 </tr>

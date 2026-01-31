@@ -289,7 +289,10 @@ async function handleBatchReplies(taskId, config) {
                 throw new Error(postResult.summary || postResult.error);
             }
 
-            results.push({ success: true, url: targetUrl });
+            results.push({
+                success: true,
+                url: postResult.url || targetUrl // Prefer the newly captured Reply URL
+            });
             successCount++;
 
             // Natural delay between tweets

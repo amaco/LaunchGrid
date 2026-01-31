@@ -152,7 +152,7 @@ export default function WorkflowDetailModal({
     }
 
     const handleDelete = async () => {
-        if (!confirm('Delete this workflow? This cannot be undone.')) return
+        if (!confirm('Warning: Deleting this workflow will also PERMANENTLY DELETE all associated engagement tracking jobs/data.\n\nAre you sure you want to proceed?')) return
 
         setIsDeleting(true)
         try {

@@ -47,4 +47,12 @@ export async function stopJobAction(jobId: string, projectId: string) {
     revalidatePath(`/dashboard/project/${projectId}`)
 }
 
+export async function deleteJobAction(jobId: string, projectId: string) {
+    const { serviceContext } = await getContext()
+    const service = new EngagementService(serviceContext)
+
+    await service.deleteJob(jobId)
+    revalidatePath(`/dashboard/project/${projectId}`)
+}
+
 // TODO: implementing delete if needed, for now Stop is enough

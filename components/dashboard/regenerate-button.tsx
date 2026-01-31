@@ -27,7 +27,7 @@ export default function RegenerateButton({ projectId }: { projectId: string }) {
         <button
             onClick={handleRegenerate}
             disabled={loading}
-            className="bg-accent/10 hover:bg-accent/20 text-accent px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 border border-accent/20"
+            className="bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 border border-accent/20"
         >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Re-Generate Strategy
