@@ -15,7 +15,7 @@ export default function ContentPreview({ content, title, type, taskId }: Content
 
     if (!content) return null;
 
-    const handleToggle = (idx: number, itemType: 'target' | 'reply') => {
+    const handleToggle = (idx: number, itemType: 'target' | 'reply' | 'hook') => {
         if (!taskId) return;
         startTransition(async () => {
             try {
@@ -27,7 +27,8 @@ export default function ContentPreview({ content, title, type, taskId }: Content
     }
 
     // Handle Batch Post Results
-    if (typeof content === 'object' && content !== null && (content as any).results && (content as any).summary) {
+    // Handle Batch Post Results
+    if (typeof content === 'object' && content !== null && !Array.isArray(content) && (content as any).results && (content as any).summary) {
         const batch = content as any;
         return (
             <div className="mt-2 bg-white/5 p-4 rounded-xl border border-white/10 text-xs shadow-inner">
@@ -54,7 +55,7 @@ export default function ContentPreview({ content, title, type, taskId }: Content
         );
     }
 
-    // Handle Array content (Targets or Replies)
+    // Handle Array content (Targets, Replies, or Hooks)
     if (Array.isArray(content)) {
         return (
             <div className="mt-2 bg-white/5 p-4 rounded-xl border border-white/10 text-xs shadow-inner">
@@ -63,7 +64,9 @@ export default function ContentPreview({ content, title, type, taskId }: Content
                     {content.map((item: any, idx) => {
                         const isReply = item.reply !== undefined;
                         const isTarget = item.reason !== undefined;
-                        const isSelectable = taskId && (isReply || isTarget);
+                        const isHook = !isReply && !isTarget && (item.text !== undefined || (typeof item === 'object' && item.selected !== undefined) || typeof item === 'string');
+
+                        const isSelectable = taskId && (isReply || isTarget || isHook);
                         const isSelected = item.selected !== false; // Default to true
 
                         return (
@@ -77,7 +80,7 @@ export default function ContentPreview({ content, title, type, taskId }: Content
                                             <input
                                                 type="checkbox"
                                                 checked={isSelected}
-                                                onChange={() => handleToggle(idx, isReply ? 'reply' : 'target')}
+                                                onChange={() => handleToggle(idx, isReply ? 'reply' : isTarget ? 'target' : 'hook')}
                                                 disabled={isPending}
                                                 className="w-4 h-4 rounded border-white/20 bg-black/50 accent-accent cursor-pointer disabled:opacity-50"
                                             />
@@ -100,7 +103,7 @@ export default function ContentPreview({ content, title, type, taskId }: Content
 
                                         {/* Main Content */}
                                         <div className="text-foreground/90 leading-relaxed whitespace-pre-wrap">
-                                            {item.reply || item.text || JSON.stringify(item)}
+                                            {typeof item === 'string' ? item : (item.reply || item.text || JSON.stringify(item))}
                                         </div>
                                     </div>
                                 </div>

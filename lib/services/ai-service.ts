@@ -99,11 +99,40 @@ class AIProviderAdapter implements AIProvider {
 
     const rawContent = await this.rawProvider.generateContent(rawTask, apiKey);
 
+    let finalContent = rawContent.content;
+    let finalTitle = rawContent.title;
+    let finalHashtags = rawContent.hashtags;
+    let finalImagePrompt = rawContent.suggestedImagePrompt;
+
+    // Check if content is actually a JSON block (common with some models)
+    if (finalContent && (finalContent.trim().startsWith('```json') || finalContent.trim().startsWith('{'))) {
+      try {
+        const jsonString = finalContent.substring(
+          finalContent.indexOf('{'),
+          finalContent.lastIndexOf('}') + 1
+        );
+        const parsed = JSON.parse(jsonString);
+
+        // If parsed object has content/title fields, use them
+        if (parsed.content || parsed.title) {
+          finalContent = parsed.content || finalContent;
+          finalTitle = parsed.title || finalTitle;
+          finalHashtags = parsed.hashtags || finalHashtags;
+          finalImagePrompt = parsed.suggestedImagePrompt || finalImagePrompt;
+        }
+      } catch (e) {
+        // Failed to parse, use raw content but strip markdown if possible
+        if (finalContent.trim().startsWith('```json')) {
+          finalContent = finalContent.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        }
+      }
+    }
+
     return {
-      title: rawContent.title,
-      content: rawContent.content,
-      hashtags: rawContent.hashtags,
-      suggestedImagePrompt: rawContent.suggestedImagePrompt,
+      title: finalTitle,
+      content: finalContent,
+      hashtags: finalHashtags,
+      suggestedImagePrompt: finalImagePrompt,
     };
   }
 }
@@ -456,6 +485,102 @@ GENERATE REPLY:`;
           providerId,
           error.message || 'Failed to generate replies',
           { duration, targetCount: targets.length }
+        );
+      }
+    });
+  }
+
+  /**
+   * Generate hooks for content
+   */
+  async generateHooks(
+    taskContext: ContentTaskContext,
+    providerId: AIProviderID = 'gemini'
+  ): Promise<Array<{ text: string; selected: boolean }>> {
+    return this.execute('generateHooks', async () => {
+      const startTime = Date.now();
+
+      await this.emitEvent('AI_GENERATION_STARTED', 'hooks', {
+        provider: providerId,
+        type: 'hooks',
+      });
+
+      try {
+        const provider = await this.getProvider(providerId);
+        const apiKey = await this.getUserApiKey(providerId);
+
+        const prompt = `
+You are a viral social media expert.
+PROJECT: ${taskContext.project.name}
+TOPIC: ${taskContext.project.description}
+AUDIENCE: ${taskContext.project.audience}
+PAIN POINTS: ${taskContext.project.painPoints}
+
+TASK: Generate 5 curiosity-inducing, "scroll-stopping" hooks about the PROJECT TOPIC above.
+CONTEXT/ANGLE: ${taskContext.workflowDescription || taskContext.pillarName}
+
+REQUIREMENTS:
+1. 1st person or direct address ("I", "You").
+2. Short, punchy, under 280 chars.
+3. Establish authority or empathy immediately.
+4. NO hashtags, NO emojis, just the text.
+
+FORMAT: Return ONLY a JSON array of strings.
+Example: ["Stop doing X.", "I analyzed 1000 datasets...", "The biggest lie in marketing is..."]
+`;
+
+        const response = await provider.generateContent({
+          ...taskContext,
+          customPrompt: prompt
+        }, apiKey);
+
+        let rawHooks: string[] = [];
+        try {
+          const jsonString = response.content.substring(
+            response.content.indexOf('['),
+            response.content.lastIndexOf(']') + 1
+          );
+          rawHooks = JSON.parse(jsonString);
+        } catch (e) {
+          // Fallback: split by newlines if JSON fails
+          rawHooks = response.content.split('\n').filter(line => line.length > 10).slice(0, 5);
+        }
+
+        // Convert to objects, 1st one selected by default
+        const hooks = rawHooks.map((text, idx) => ({
+          text,
+          selected: idx === 0
+        }));
+
+        const duration = Date.now() - startTime;
+
+        await logAIDecision(
+          {
+            organizationId: this.organizationId,
+            userId: this.userId,
+            requestId: this.context.requestId,
+          },
+          providerId,
+          'generateHooks',
+          { project: taskContext.project.name },
+          { hookCount: hooks.length },
+          duration
+        );
+
+        await this.emitEvent('AI_GENERATION_COMPLETED', 'hooks', {
+          provider: providerId,
+          type: 'hooks',
+          count: hooks.length,
+          duration,
+        });
+
+        return hooks;
+
+      } catch (error: any) {
+        throw new AIProviderError(
+          providerId,
+          error.message || 'Failed to generate hooks',
+          { duration: Date.now() - startTime }
         );
       }
     });

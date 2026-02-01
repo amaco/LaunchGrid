@@ -447,7 +447,7 @@ export async function updateWorkflowAction(
 export async function toggleItemSelectionAction(
     taskId: string,
     itemIndex: number,
-    itemType: 'target' | 'reply'
+    itemType: 'target' | 'reply' | 'hook'
 ) {
     const supabase = await createClient()
 
@@ -476,9 +476,20 @@ export async function toggleItemSelectionAction(
     } else if (itemType === 'reply') {
         key = 'replies'
         items = outputData.replies || []
+    } else if (itemType === 'hook') {
+        key = 'hooks'
+        items = outputData.hooks || []
     }
 
     if (!items[itemIndex]) throw new Error('Item not found')
+
+    // Handle legacy string items (auto-migrate to object)
+    if (typeof items[itemIndex] === 'string') {
+        items[itemIndex] = {
+            text: items[itemIndex],
+            selected: true // It was implicitly true before
+        }
+    }
 
     // Toggle selected state (default to true if undefined)
     const currentSelected = items[itemIndex].selected !== false

@@ -154,9 +154,9 @@ export default function EditableContentPreview({
                 )}
                 <div className="space-y-3">
                     {content.map((item: any, idx) => {
-                        const isSelected = item.selected !== false
-                        const isReply = item.reply !== undefined
-                        const isTarget = item.reason !== undefined
+                        const isString = typeof item === 'string'
+                        const isSelected = !isString ? item.selected !== false : true // Default string to selected/true (no checkbox logic for now)
+                        const isReply = !isString && item.reply !== undefined
 
                         return (
                             <div key={idx} className={`relative bg-white/5 p-3 rounded border transition-all flex gap-3 ${isSelected ? 'border-white/5 opacity-100' : 'border-white/5 opacity-40'}`}>
@@ -168,7 +168,11 @@ export default function EditableContentPreview({
                                         onChange={(e) => {
                                             startTransition(async () => {
                                                 try {
-                                                    await toggleItemSelectionAction(taskId, idx, isReply ? 'reply' : 'target')
+                                                    await toggleItemSelectionAction(
+                                                        taskId,
+                                                        idx,
+                                                        isReply ? 'reply' : (isString || (!isReply && !item.reason)) ? 'hook' : 'target'
+                                                    )
                                                 } catch (err) {
                                                     console.error('Failed to toggle', err)
                                                 }
@@ -179,20 +183,26 @@ export default function EditableContentPreview({
                                 </div>
 
                                 <div className="flex-1 min-w-0">
-                                    {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author.replace(/^@/, '')}</div>}
+                                    {isString ? (
+                                        <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{cleanString(item)}</div>
+                                    ) : (
+                                        <>
+                                            {item.author && <div className="text-blue-400 font-bold mb-1">@{item.author.replace(/^@/, '')}</div>}
 
-                                    {/* Original Text Context */}
-                                    {item.original_text && (
-                                        <div className="pl-2 border-l-2 border-white/10 text-foreground/40 italic mb-2 py-1 text-[10px] leading-relaxed">
-                                            "{item.original_text.length > 150 ? item.original_text.substring(0, 150) + '...' : item.original_text}"
-                                        </div>
-                                    )}
+                                            {/* Original Text Context */}
+                                            {item.original_text && (
+                                                <div className="pl-2 border-l-2 border-white/10 text-foreground/40 italic mb-2 py-1 text-[10px] leading-relaxed">
+                                                    "{item.original_text.length > 150 ? item.original_text.substring(0, 150) + '...' : item.original_text}"
+                                                </div>
+                                            )}
 
-                                    <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{cleanString(item.reply || item.text || item.content || JSON.stringify(item))}</div>
-                                    {item.reason && (
-                                        <div className="text-green-400/70 text-[10px] mt-1 italic">
-                                            → {item.reason}
-                                        </div>
+                                            <div className="text-foreground/80 leading-relaxed whitespace-pre-wrap">{cleanString(item.reply || item.text || item.content || JSON.stringify(item))}</div>
+                                            {item.reason && (
+                                                <div className="text-green-400/70 text-[10px] mt-1 italic">
+                                                    → {item.reason}
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             </div>
@@ -218,16 +228,16 @@ export default function EditableContentPreview({
                     <div className="space-y-4">
                         {editedContent.map((item: any, idx) => (
                             <div key={idx} className="bg-black/20 p-3 rounded border border-white/10">
-                                {item.author && (
+                                {typeof item === 'object' && item.author && (
                                     <div className="text-blue-400 font-bold mb-2 text-xs">
                                         Replying to: @{item.author.replace('@', '')}
                                     </div>
                                 )}
                                 <textarea
-                                    value={item.reply || item.text || item.content || (typeof item === 'string' ? item : JSON.stringify(item))}
+                                    value={typeof item === 'string' ? item : (item.reply || item.text || item.content || JSON.stringify(item))}
                                     onChange={(e) => handleArrayItemChange(idx, e.target.value)}
                                     className="w-full min-h-[80px] bg-black/30 border border-white/10 rounded p-2 text-foreground/90 font-mono text-xs resize-y focus:outline-none focus:border-accent/50"
-                                    placeholder="Enter reply text..."
+                                    placeholder="Enter text..."
                                 />
                             </div>
                         ))}

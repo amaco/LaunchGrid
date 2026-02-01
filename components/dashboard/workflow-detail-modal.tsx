@@ -401,7 +401,7 @@ export default function WorkflowDetailModal({
                                                     ) &&
                                                         step.type !== 'REVIEW_CONTENT' &&
                                                         // For POST steps, only allow rerun if not successfully completed to avoid duplicates
-                                                        (!['POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type) || latestTask.status !== 'completed') &&
+                                                        (!['POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type) || latestTask.status !== 'completed' || step.type === 'POST_EXTENSION') && // Allow POST_EXTENSION to rerun in case of 0/0 error
                                                         (idx === nextStepIndex - 1 || (nextStepIndex < 0 && idx === sortedSteps.length - 1) || latestTask.status === 'cancelled' || latestTask.status === 'failed') && (
                                                             <button
                                                                 onClick={(e) => {
@@ -448,8 +448,12 @@ export default function WorkflowDetailModal({
                                                         <TaskContentEditor
                                                             taskId={latestTask.id}
                                                             projectId={projectId}
-                                                            content={latestTask.output_data.replies || latestTask.output_data.content}
-                                                            contentKey={latestTask.output_data.replies ? 'replies' : 'content'}
+                                                            content={latestTask.output_data.replies || latestTask.output_data.content || latestTask.output_data.hooks}
+                                                            contentKey={
+                                                                latestTask.output_data.replies ? 'replies' :
+                                                                    latestTask.output_data.hooks ? 'hooks' :
+                                                                        'content'
+                                                            }
                                                         />
                                                     ) : (
                                                         <ContentPreview
@@ -458,6 +462,7 @@ export default function WorkflowDetailModal({
                                                                 latestTask?.output_data?.replies ||
                                                                 latestTask?.output_data?.selected_items ||
                                                                 latestTask?.output_data?.found_items ||
+                                                                latestTask?.output_data?.hooks ||
                                                                 latestTask?.output_data?.content ||
                                                                 latestTask?.output_data
                                                             }

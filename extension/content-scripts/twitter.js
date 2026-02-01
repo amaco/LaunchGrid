@@ -84,7 +84,7 @@ function sendResult(taskId, data, isError = false) {
 
 function cleanReplyText(text) {
     if (!text || typeof text !== 'string') return text;
-    let s = text.trim();
+    let s = text; // Don't trim start/end immediately to preserve intentional spacing
     for (let i = 0; i < 3; i++) {
         let changed = false;
         if (s.length >= 2) {
@@ -96,7 +96,6 @@ function cleanReplyText(text) {
             }
         }
         if (!changed) break;
-        s = s.trim();
     }
     s = s.replace(/^Reply by AI:\s*/i, '');
     return s;
@@ -171,30 +170,81 @@ async function performSingleReply(taskId, config) {
     editor.focus();
     await sleep(500);
 
-    sendProgress(taskId, "Typing reply content...");
+    // Clear existing text first (crucial for re-tries)
     document.execCommand('selectAll', false, null);
-    document.execCommand('insertText', false, text);
+    document.execCommand('delete', false, null);
+    await sleep(200);
+
+    sendProgress(taskId, "Typing content...");
+
+    // Paste method (more reliable for large text)
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData('text/plain', text);
+    editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true }));
     await sleep(500);
 
-    // Fallback typing
-    if (!editor.innerText.trim() || !editor.innerText.includes(text.substring(0, 3))) {
-        const dataTransfer = new DataTransfer();
-        dataTransfer.setData('text/plain', text);
-        editor.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dataTransfer, bubbles: true }));
+    // Verify text
+    if (!editor.innerText.trim()) {
+        // Fallback to insertText if paste failed
+        document.execCommand('insertText', false, text);
     }
 
     editor.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep(1000);
+    await sleep(1500);
 
-    const replyBtn = await waitForElement(['[data-testid="tweetButtonInline"]', '[data-testid="tweetButton"]'], 3000);
-    if (!replyBtn) throw new Error("Reply button not found");
+    // Dynamic button selector - prioritized
+    const btnSelectors = [
+        '[data-testid="tweetButtonInline"]',
+        '[data-testid="tweetButton"]',
+        'div[role="button"][data-testid*="tweetButton"]'
+    ];
+
+    const replyBtn = await waitForElement(btnSelectors, 3000);
+    if (!replyBtn) throw new Error("Post/Reply button not found");
 
     if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+        // Maybe wait a bit?
         await sleep(1500);
     }
 
     if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
-        throw new Error("Reply button is disabled. Text might be too long or invalid.");
+        const currentLen = editor.innerText.length;
+        throw new Error(`Post button disabed. Text length: ${currentLen}. Limit might be exceeded.`);
+    }
+
+    sendProgress(taskId, "Submitting post...");
+
+    // Dismiss any popups (hashtag suggestions, @mention lists)
+    try {
+        console.log("[LaunchGrid] Dismissing popups with CLICK/TAB/ESC sequence...");
+
+        // 1. Explicit click on "outside" area (top left corner)
+        // This is very effective for closing dropdowns
+        document.body.click();
+        await sleep(300);
+
+        // 2. Tab key (moves focus)
+        document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true }));
+        await sleep(300);
+
+        // 3. Blur
+        if (document.activeElement) document.activeElement.blur();
+        await sleep(300);
+
+        // 4. Escape
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+        await sleep(500);
+
+    } catch (e) {
+        // ignore
+    }
+
+    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+        const currentLen = editor.innerText.length;
+        if (currentLen > 280) {
+            throw new Error(`Text too long (${currentLen}/280 chars). Twitter blocked the post.`);
+        }
+        throw new Error(`Post button disabled. Twitter might be blocking automated posting or text is invalid.`);
     }
 
     sendProgress(taskId, "Submitting post...");
@@ -205,11 +255,9 @@ async function performSingleReply(taskId, config) {
     sendProgress(taskId, "Waiting for success confirmation...");
 
     try {
-        // Look for the "View" link in the toast
-        // Twitter toasts usually have role="alert" or data-testid="toast"
-        // The link inside usually points to the new status
-        const viewLinkValues = ['a[href*="/status/"]', 'div[role="alert"] a[href*="/status/"]'];
-        const viewLink = await waitForElement(viewLinkValues, 5000);
+        // Look for the "View" link in the toast or the "Your post was sent" text
+        const viewLinkValues = ['a[href*="/status/"]', 'div[role="alert"] a[href*="/status/"]', '[data-testid="toast"] a[href*="/status/"]'];
+        const viewLink = await waitForElement(viewLinkValues, 8000); // Increased timeout
 
         if (viewLink) {
             const replyUrl = viewLink.href;
@@ -220,11 +268,24 @@ async function performSingleReply(taskId, config) {
                 results: [{ success: true, url: replyUrl }] // Format for backend
             };
         }
+
+        // Check for generic success toast if no link found
+        const toast = await waitForElement(['[data-testid="toast"]', 'div[role="alert"]'], 2000);
+        if (toast && (toast.innerText.includes('sent') || toast.innerText.includes('posted'))) {
+            return { success: true, results: [{ success: true }] };
+        }
+
     } catch (e) {
-        console.warn("[LaunchGrid] Could not capture reply URL, falling back to success without URL:", e);
+        console.warn("[LaunchGrid] Could not capture reply URL, falling back to success check:", e);
     }
 
-    // Fallback: Return success (we clicked reply) but no URL (tracking will use original post)
+    // If we clicked and didn't get an error, assume success for compose/tweet as it usually closes
+    if (window.location.href.includes('compose/tweet')) {
+        await sleep(2000); // Wait for modal close
+        return { success: true, results: [{ success: true }] };
+    }
+
+    // Fallback
     await sleep(2000);
     return { success: true, results: [{ success: true }] };
 }

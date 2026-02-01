@@ -137,6 +137,16 @@ export async function executeWorkflowAction(workflowId: string) {
         switch (targetStep.type) {
             case 'GENERATE_DRAFT':
             case 'GENERATE_OUTLINE': {
+                // Check if we have a selected hook from previous step
+                let contextDescription = workflow.description || ''
+                if ((previousStepOutput as any)?.hooks) {
+                    const hooks = (previousStepOutput as any).hooks as Array<{ text: string, selected: boolean }>
+                    const selected = hooks.find((h) => h.selected !== false)
+                    if (selected) {
+                        contextDescription = `SELECTED HOOK: "${selected.text}"\n\nTASK CONTEXT: ${contextDescription}`
+                    }
+                }
+
                 const content = await aiService.generateContent(
                     {
                         project: {
@@ -148,7 +158,7 @@ export async function executeWorkflowAction(workflowId: string) {
                         },
                         pillarName: pillar?.name || 'Unknown',
                         workflowName: workflow.name,
-                        workflowDescription: workflow.description || '',
+                        workflowDescription: contextDescription,
                         stepConfig: targetStep.config,
                         previousOutput: previousStepOutput,
                     },
@@ -291,20 +301,128 @@ export async function executeWorkflowAction(workflowId: string) {
                 }
             }
 
+            case 'GENERATE_HOOKS': {
+                const hooks = await aiService.generateHooks(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || '',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: targetStep.config,
+                        previousOutput: previousStepOutput,
+                    },
+                    providerId
+                )
+                resultData = {
+                    hooks,
+                    title: `Generated ${hooks.length} Viral Hooks`,
+                    selected_hook: null // User will select one
+                }
+                break
+            }
+
             case 'POST_API':
             case 'POST_REPLY':
             case 'POST_EXTENSION': {
-                // Human-in-the-loop: require approval before posting
-                await taskService.markForReview(task.id, {
+                // If this is the execution of the POST step, implies prior steps (review) are done.
+                // We queue the extension job immediately.
+
+                let itemsToQueue = [];
+                // 1. Try to find replies from previous step
+                const rawReplies = (previousStepOutput as any)?.replies || []
+                // If previous step was REVIEW_CONTENT, it might have filtered/approved items.
+                // If not, we take selected ones.
+                const approvedReplies = rawReplies.filter((r: any) => r.selected !== false)
+
+                if (approvedReplies.length > 0) {
+                    itemsToQueue = approvedReplies
+                }
+                // 2. If no replies, check for Main Content Draft
+                else if ((previousStepOutput as any)?.content) {
+                    const draft = previousStepOutput as any;
+                    let finalContent = draft.content || '';
+
+                    // 1. Normalize content
+                    // We DO NOT trim the end here yet, we want to control the end
+                    finalContent = finalContent.trimStart();
+
+                    // 2. BRUTE FORCE CLEANER:
+                    // Remove ALL instances of the metadata hashtags from the content body.
+                    // This ensures no matter where they are (start, middle, end, duplicated), they are gone.
+                    let tags = Array.isArray(draft.hashtags) ? [...draft.hashtags] : [];
+                    const uniqueTags = Array.from(new Set(tags.map((t: string) => t.trim())));
+
+                    uniqueTags.forEach(tag => {
+                        // Remove #tag and tag (case insensitive)
+                        // This might be dangerous if tag is a common word, but usually these are specific topics.
+                        // We strictly look for the #version first.
+                        const hashPattern = new RegExp(`#${tag}\\b`, 'gi');
+                        finalContent = finalContent.replace(hashPattern, '');
+
+                        // Optional: remove non-hash version at end of string? 
+                        // Let's stick to cleaning hashtag versions to be safe against deleting words in sentences.
+                    });
+
+                    // Cleanup extra whitespace left by removals
+                    finalContent = finalContent.replace(/\n\s*\n/g, '\n\n').trim();
+
+                    // 3. Re-append correct tags
+                    if (uniqueTags.length > 0) {
+                        const formattedTags = uniqueTags.map(t => t.startsWith('#') ? t : `#${t}`);
+                        finalContent += `\n\n${formattedTags.join(' ')}`;
+                    }
+
+                    // 4. Append a trailing space to help dismiss the "Hashtag Suggestion" menu on Twitter
+                    // (Extension update is required to respect this space)
+                    finalContent += ' ';
+
+                    itemsToQueue = [{
+                        targetUrl: 'https://x.com/compose/tweet',
+                        content: finalContent,
+                        original_text: 'New Post',
+                        author: 'Me'
+                    }];
+                }
+
+                if (itemsToQueue.length === 0) {
+                    // Fallback: Just mark for review if no actionable data found
+                    await taskService.markForReview(task.id, {
+                        ...previousStepOutput,
+                        pending_action: targetStep.type,
+                        message: 'No actions detected - review needed',
+                    })
+                    return { awaiting_approval: true, message: 'No content to post' }
+                }
+
+                // Queue immediately
+                await taskService.queueForExtension(task.id, {
                     ...previousStepOutput,
-                    pending_action: targetStep.type,
-                    message: 'Ready to post - awaiting approval',
+                    replies: itemsToQueue,
+                    queuedAt: new Date().toISOString()
                 })
+
+                await emitTaskEvent(
+                    'EXTENSION_TASK_QUEUED',
+                    task.id,
+                    { stepType: targetStep.type, itemCount: itemsToQueue.length },
+                    {
+                        organizationId: user.id,
+                        userId: user.id,
+                        correlationId: requestId,
+                        source: 'ui',
+                    }
+                )
 
                 revalidatePath(`/dashboard/project/${project.id}`)
                 return {
-                    awaiting_approval: true,
-                    message: 'Ready to post - awaiting approval',
+                    pending_extension: true,
+                    message: `Queued ${itemsToQueue.length} items for extension`
                 }
             }
 
@@ -394,14 +512,37 @@ export async function approveTaskAction(taskId: string) {
         .single()
 
     if (step && (step.type === 'POST_EXTENSION' || step.type === 'POST_REPLY')) {
-        // Filter out unchecked replies before queueing
+        let itemsToQueue = [];
+
+        // 1. Try to find replies (Engagement Workflow)
         const rawReplies = (task.outputData as any)?.replies || []
         const approvedReplies = rawReplies.filter((r: any) => r.selected !== false)
+
+        if (approvedReplies.length > 0) {
+            itemsToQueue = approvedReplies
+        }
+        // 2. If no replies, check for Main Content Draft (Content Creation Workflow)
+        else if ((task.outputData as any)?.content) {
+            const draft = task.outputData as any;
+            let finalContent = draft.content || '';
+
+            // Append hashtags if present
+            if (Array.isArray(draft.hashtags) && draft.hashtags.length > 0) {
+                finalContent += `\n\n${draft.hashtags.join(' ')}`;
+            }
+
+            itemsToQueue = [{
+                targetUrl: 'https://x.com/compose/tweet',
+                content: finalContent,
+                original_text: 'New Post',
+                author: 'Me'
+            }];
+        }
 
         // Queue for extension instead of completing
         await taskService.queueForExtension(taskId, {
             ...task.outputData,
-            replies: approvedReplies,
+            replies: itemsToQueue,
             approvedAt: new Date().toISOString()
         })
     } else {
@@ -558,6 +699,16 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
         switch (step.type) {
             case 'GENERATE_DRAFT':
             case 'GENERATE_OUTLINE': {
+                // Check if we have a selected hook from previous step
+                let contextDescription = workflow.description || ''
+                if ((previousStepOutput as any)?.hooks) {
+                    const hooks = (previousStepOutput as any).hooks as Array<{ text: string, selected: boolean }>
+                    const selected = hooks.find((h) => h.selected !== false)
+                    if (selected) {
+                        contextDescription = `SELECTED HOOK: "${selected.text}"\n\nTASK CONTEXT: ${contextDescription}`
+                    }
+                }
+
                 const content = await aiService.generateContent(
                     {
                         project: {
@@ -569,7 +720,7 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
                         },
                         pillarName: pillar?.name || 'Unknown',
                         workflowName: workflow.name,
-                        workflowDescription: workflow.description || '',
+                        workflowDescription: contextDescription,
                         stepConfig: step.config,
                         previousOutput: previousStepOutput,
                     },
@@ -624,6 +775,28 @@ export async function rerunStepAction(taskId: string, workflowId: string) {
                     title: `Selected ${selectedItems.length} High-Value Targets`,
                     rationale: `Filtered from ${foundItems.length} raw candidates.`,
                 }
+                break
+            }
+
+            case 'GENERATE_HOOKS': {
+                const hooks = await aiService.generateHooks(
+                    {
+                        project: {
+                            name: project.name,
+                            description: context.description || '',
+                            audience: context.audience || '',
+                            painPoints: context.painPoints || '',
+                            budget: context.budget || 0,
+                        },
+                        pillarName: pillar?.name || 'Unknown',
+                        workflowName: workflow.name,
+                        workflowDescription: workflow.description || '',
+                        stepConfig: step.config,
+                        previousOutput: previousStepOutput,
+                    },
+                    providerId
+                )
+                resultData = { hooks, title: `Generated ${hooks.length} Viral Hooks` }
                 break
             }
 
