@@ -2,9 +2,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { EngagementService } from '../lib/services/engagement-service';
 
-// Mock environment
-process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://plxchjkftdbfccbqxuve.supabase.co';
-process.env.SUPABASE_SECRET_KEY = 'sb_secret_i8nYPkq8jjvuuESwJHJTMw_0qNJZeUh'; // From env.local
+// Environment variables should be loaded from .env.local or provided via CLI
+// process.env.NEXT_PUBLIC_SUPABASE_URL and process.env.SUPABASE_SECRET_KEY are used below
 
 async function main() {
     console.log("Testing EngagementService...");

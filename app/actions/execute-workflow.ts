@@ -360,9 +360,9 @@ export async function executeWorkflowAction(workflowId: string) {
 
                     uniqueTags.forEach(tag => {
                         // Remove #tag and tag (case insensitive)
-                        // This might be dangerous if tag is a common word, but usually these are specific topics.
-                        // We strictly look for the #version first.
-                        const hashPattern = new RegExp(`#${tag}\\b`, 'gi');
+                        // Strip # from tag if it's there before creating the regex
+                        const bareTag = tag.startsWith('#') ? tag.substring(1) : tag;
+                        const hashPattern = new RegExp(`#${bareTag}\\b`, 'gi');
                         finalContent = finalContent.replace(hashPattern, '');
 
                         // Optional: remove non-hash version at end of string? 
@@ -378,9 +378,9 @@ export async function executeWorkflowAction(workflowId: string) {
                         finalContent += `\n\n${formattedTags.join(' ')}`;
                     }
 
-                    // 4. Append a trailing space to help dismiss the "Hashtag Suggestion" menu on Twitter
-                    // (Extension update is required to respect this space)
-                    finalContent += ' ';
+                    // 4. Append TWO trailing spaces to help dismiss the "Hashtag Suggestion" menu on Twitter
+                    // Twitter sometimes needs more "context" change to close the typeahead.
+                    finalContent += '  ';
 
                     itemsToQueue = [{
                         targetUrl: 'https://x.com/compose/tweet',
@@ -526,10 +526,24 @@ export async function approveTaskAction(taskId: string) {
             const draft = task.outputData as any;
             let finalContent = draft.content || '';
 
-            // Append hashtags if present
-            if (Array.isArray(draft.hashtags) && draft.hashtags.length > 0) {
-                finalContent += `\n\n${draft.hashtags.join(' ')}`;
+            // Clean up: same robust logic as executeWorkflowAction
+            const tags = Array.isArray(draft.hashtags) ? [...draft.hashtags] : [];
+            const uniqueTags = Array.from(new Set(tags.map((t: string) => t.trim())));
+
+            uniqueTags.forEach(tag => {
+                const bareTag = tag.startsWith('#') ? tag.substring(1) : tag;
+                const hashPattern = new RegExp(`#${bareTag}\\b`, 'gi');
+                finalContent = finalContent.replace(hashPattern, '');
+            });
+
+            finalContent = finalContent.replace(/\n\s*\n/g, '\n\n').trim();
+
+            if (uniqueTags.length > 0) {
+                const formattedTags = uniqueTags.map(t => t.startsWith('#') ? t : `#${t}`);
+                finalContent += `\n\n${formattedTags.join(' ')}`;
             }
+
+            finalContent += '  '; // Double space for popup dismissal
 
             itemsToQueue = [{
                 targetUrl: 'https://x.com/compose/tweet',

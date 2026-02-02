@@ -216,30 +216,54 @@ async function performSingleReply(taskId, config) {
 
     // Dismiss any popups (hashtag suggestions, @mention lists)
     try {
-        console.log("[LaunchGrid] Dismissing popups with CLICK/TAB/ESC sequence...");
+        console.log("[LaunchGrid] Dismissing popups with AGGRESSIVE sequence...");
 
-        // 1. Explicit click on "outside" area (top left corner)
-        // This is very effective for closing dropdowns
-        document.body.click();
-        await sleep(300);
+        const typeaheadSelectors = ['[data-testid="typeaheadDropdown"]', '[role="listbox"]', '.typeahead-dropdown'];
 
-        // 2. Tab key (moves focus)
-        document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true }));
-        await sleep(300);
+        for (let attempt = 0; attempt < 3; attempt++) {
+            // 1. Check if typeahead exists
+            const typeahead = document.querySelector(typeaheadSelectors.join(','));
+            if (!typeahead) {
+                console.log("[LaunchGrid] No popup detected, continuing.");
+                break;
+            }
 
-        // 3. Blur
-        if (document.activeElement) document.activeElement.blur();
-        await sleep(300);
+            console.log(`[LaunchGrid] Dismissal attempt ${attempt + 1}...`);
 
-        // 4. Escape
-        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
-        await sleep(500);
+            // 2. Click a neutral spot (modal header or "Drafts" link area)
+            const neutralSpot = document.querySelector('[data-testid="layer"] h2') ||
+                document.querySelector('div[role="button"][data-testid*="close"]') ||
+                document.body;
+            neutralSpot.click();
+            await sleep(200);
+
+            // 3. Dispatch multiple Escape keys
+            document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            await sleep(100);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+            await sleep(200);
+
+            // 4. Tab out and back
+            document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true }));
+            await sleep(200);
+
+            if (document.activeElement) document.activeElement.blur();
+            await sleep(300);
+        }
+
+        // Final focus back on body just in case
+        document.body.focus();
+        await sleep(200);
 
     } catch (e) {
-        // ignore
+        console.warn("[LaunchGrid] Popup dismissal error:", e);
     }
 
-    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+    // FINAL CHECK: Ensure button is STILL there and not masked
+    const finalBtn = await waitForElement(btnSelectors, 1000);
+    if (!finalBtn) throw new Error("Post button disappeared after dismissal sequence");
+
+    if (finalBtn.disabled || finalBtn.getAttribute('aria-disabled') === 'true') {
         const currentLen = editor.innerText.length;
         if (currentLen > 280) {
             throw new Error(`Text too long (${currentLen}/280 chars). Twitter blocked the post.`);

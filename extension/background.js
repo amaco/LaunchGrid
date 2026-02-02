@@ -19,7 +19,9 @@ console.log("[LaunchGrid] Background Service Worker Started - v2.5");
 const CONFIG = {
     // API
     API_URL: 'http://localhost:3000/api/v1/extension',
-    API_KEY: 'ext_secure_88a92b3c7d',
+    // For development, you can set this manually or use a build-time injection.
+    // NEVER commit production keys here.
+    API_KEY: 'DEVELOPMENT_KEY_CHANGE_ME',
 
     // Polling
     POLL_INTERVAL_MINUTES: 0.5,  // 30 seconds
