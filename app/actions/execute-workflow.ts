@@ -277,6 +277,7 @@ export async function executeWorkflowAction(workflowId: string) {
                         workflowName: workflow.name,
                         workflowDescription: workflow.description || '',
                         stepConfig: targetStep.config,
+                        config: workflow.config, // <-- CRITICAL: Pass workflow settings (replyCalibration, aiStrictness)
                     },
                     targets,
                     providerId
@@ -455,6 +456,21 @@ export async function executeWorkflowAction(workflowId: string) {
             }
         )
 
+        // 10. AUTO-TRANSITION: If the NEXT step is just a metadata/review placeholder, trigger it immediately
+        const updatedState = await workflowService.getExecutionState(workflowId)
+        const nextStepData = updatedState.nextStep
+
+        if (
+            nextStepData &&
+            nextStepData.canExecute &&
+            ['REVIEW_CONTENT', 'WAIT_APPROVAL'].includes(nextStepData.step.type)
+        ) {
+            console.log(`[Workflow] Auto-triggering next passthrough step: ${nextStepData.step.type}`)
+            // Recursively call to handle the next step
+            // This ensures "REVIEW_CONTENT" happens immediately after generation
+            return await executeWorkflowAction(workflowId)
+        }
+
         revalidatePath(`/dashboard/project/${project.id}`)
         return resultData
 
@@ -576,14 +592,23 @@ export async function approveTaskAction(taskId: string) {
         {}
     )
 
-    // Get project ID to revalidate
+    // Get task with workflow_id to trigger next step
     const { data: taskData } = await supabase
         .from('tasks')
-        .select('project_id')
+        .select('project_id, workflow_id, id')
         .eq('id', taskId)
         .single()
 
     if (taskData) {
+        // AUTO-TRIGGER NEXT STEP:
+        // After approval, try to execute the workflow again to move to the next thing
+        try {
+            console.log(`[Workflow] Task ${taskId} approved. Auto-triggering next step...`)
+            await executeWorkflowAction(taskData.workflow_id)
+        } catch (e) {
+            console.warn('[Workflow] Auto-trigger failed after approval (this is usually fine):', e)
+        }
+
         revalidatePath(`/dashboard/project/${taskData.project_id}`)
     }
 

@@ -290,17 +290,23 @@ export default function WorkflowDetailModal({
                                         statusBg = 'bg-red-500/10'
                                     }
 
-                                    // Check if content is editable (AI-generated vs raw data)
-                                    // REVIEW_CONTENT typically holds replies from previous step
-                                    const hasReplies = latestTask?.output_data?.replies
-                                    const isEditable = hasReplies || step.type === 'GENERATE_REPLIES' || step.type === 'GENERATE_DRAFT' || step.type === 'GENERATE_HOOKS'
+                                    // "Single Point of Edit" UX:
+                                    // Only allow editing on the CURRENT actionable step (review/post steps in review_needed status)
+                                    // Generator steps (GENERATE_DRAFT, GENERATE_REPLIES, etc.) should use "Re-run" if user wants changes
+                                    const isReviewOrPostStep = ['REVIEW_CONTENT', 'POST_EXTENSION', 'POST_REPLY', 'POST_API'].includes(step.type)
+                                    const isAwaitingReview = latestTask?.status === 'review_needed'
+                                    const hasEditableContent = latestTask?.output_data?.replies || latestTask?.output_data?.content || latestTask?.output_data?.hooks
+                                    const isEditable = isReviewOrPostStep && isAwaitingReview && hasEditableContent
 
                                     return (
                                         <div key={step.id} className={`rounded-lg border border-white/10 overflow-hidden ${isNext ? 'ring-1 ring-accent' : ''}`}>
                                             {/* Step header */}
                                             <div
                                                 className={`flex items-center gap-3 p-3 ${statusBg} cursor-pointer hover:bg-white/10 transition-colors group`}
-                                                onClick={() => hasOutput && toggleStep(step.id)}
+                                                onClick={(e) => {
+                                                    // Only toggle if we didn't click a button inside
+                                                    if (hasOutput) toggleStep(step.id)
+                                                }}
                                             >
                                                 <div className="shrink-0 text-xs font-mono text-foreground/20 group-hover:text-foreground/40 transition-colors w-4 text-center select-none">
                                                     {idx + 1}
@@ -446,6 +452,7 @@ export default function WorkflowDetailModal({
                                                 <div className="p-3 border-t border-white/10 bg-black/20">
                                                     {isEditable && latestTask ? (
                                                         <TaskContentEditor
+                                                            key={`editor-${latestTask.id}`}
                                                             taskId={latestTask.id}
                                                             projectId={projectId}
                                                             content={latestTask.output_data.replies || latestTask.output_data.content || latestTask.output_data.hooks}
@@ -457,6 +464,7 @@ export default function WorkflowDetailModal({
                                                         />
                                                     ) : (
                                                         <ContentPreview
+                                                            key={`preview-${latestTask?.id || step.id}`}
                                                             taskId={latestTask?.id}
                                                             content={
                                                                 latestTask?.output_data?.replies ||
@@ -464,7 +472,8 @@ export default function WorkflowDetailModal({
                                                                 latestTask?.output_data?.found_items ||
                                                                 latestTask?.output_data?.hooks ||
                                                                 latestTask?.output_data?.content ||
-                                                                latestTask?.output_data
+                                                                latestTask?.output_data ||
+                                                                {}
                                                             }
                                                         />
                                                     )}

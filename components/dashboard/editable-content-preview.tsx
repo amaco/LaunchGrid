@@ -52,6 +52,36 @@ export default function EditableContentPreview({
         return s
     }
 
+    // Format status objects (like extension feedback) into user-friendly messages
+    const formatStatusMessage = (obj: Record<string, unknown>): string | null => {
+        // Check if this looks like a status/progress object
+        const hasStatusFields = obj.info || obj.progress_info || obj.status || obj.collected !== undefined
+
+        if (!hasStatusFields) return null
+
+        const parts: string[] = []
+
+        // Main message
+        if (obj.info) parts.push(String(obj.info))
+        if (obj.progress_info && obj.progress_info !== obj.info) parts.push(String(obj.progress_info))
+
+        // Progress details
+        if (obj.collected !== undefined) {
+            parts.push(`📊 Collected: ${obj.collected} items`)
+        }
+        if (obj.limit) {
+            parts.push(`🎯 Target: ${obj.limit} items`)
+        }
+        if (obj.keywords) {
+            parts.push(`🔍 Keywords: "${String(obj.keywords).substring(0, 50)}${String(obj.keywords).length > 50 ? '...' : ''}"`)
+        }
+        if (obj.status === 'heartbeat') {
+            parts.push('💓 Extension is connected and working...')
+        }
+
+        return parts.length > 0 ? parts.join('\n') : null
+    }
+
     const initializeContent = (c: any) => {
         if (typeof c === 'string') return cleanString(c)
         if (Array.isArray(c)) {
@@ -137,13 +167,17 @@ export default function EditableContentPreview({
     if (Array.isArray(content) && !isEditing) {
         return (
             <div className="mt-2 bg-white/5 p-4 rounded-xl border border-white/10 text-xs shadow-inner relative group">
-                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-2 right-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity z-10">
                     <button
-                        onClick={() => setIsEditing(true)}
-                        className="p-1.5 bg-white/10 hover:bg-white/20 rounded text-white/60 hover:text-white transition-all"
-                        title="Edit content"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsEditing(true);
+                        }}
+                        className="p-2 bg-white/10 hover:bg-accent/20 rounded-lg text-white/60 hover:text-accent transition-all shadow-lg active:scale-95 border border-white/5 hover:border-accent/30"
+                        title="Edit output content"
                     >
-                        <Pencil className="w-3 h-3" />
+                        <Pencil className="w-4 h-4" />
                     </button>
                 </div>
 
@@ -253,16 +287,24 @@ export default function EditableContentPreview({
 
                 <div className="flex justify-end gap-2 mt-3">
                     <button
-                        onClick={handleCancel}
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleCancel();
+                        }}
                         disabled={isSaving}
-                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded text-white/70 hover:text-white transition-all text-xs flex items-center gap-1"
+                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded text-white/70 hover:text-white transition-all text-xs flex items-center gap-1 active:scale-95"
                     >
                         <X className="w-3 h-3" /> Cancel
                     </button>
                     <button
-                        onClick={handleSave}
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleSave();
+                        }}
                         disabled={isSaving}
-                        className="px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded text-green-400 hover:text-green-300 transition-all text-xs flex items-center gap-1"
+                        className="px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded text-green-400 hover:text-green-300 transition-all text-xs flex items-center gap-1 active:scale-95"
                     >
                         {isSaving ? (
                             <>Saving...</>
@@ -281,7 +323,14 @@ export default function EditableContentPreview({
     if (typeof content === 'object' && content !== null && !Array.isArray(content)) {
         // Extract the actual text from object - cast to any for dynamic property access
         const obj = content as Record<string, unknown>
-        displayText = String(obj.reply || obj.content || obj.text || JSON.stringify(content, null, 2))
+        // First, try to format as user-friendly status message
+        const friendlyMessage = formatStatusMessage(obj)
+        if (friendlyMessage) {
+            displayText = friendlyMessage
+        } else {
+            // Fallback to content fields or JSON
+            displayText = String(obj.reply || obj.content || obj.text || JSON.stringify(content, null, 2))
+        }
     }
 
     const isThread = typeof displayText === 'string' && displayText.includes('---')
