@@ -202,14 +202,44 @@ async function performSingleReply(taskId, config) {
     const replyBtn = await waitForElement(btnSelectors, 3000);
     if (!replyBtn) throw new Error("Post/Reply button not found");
 
-    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
-        // Maybe wait a bit?
-        await sleep(1500);
+    // Wait for button to become enabled (Twitter needs time to process text)
+    let buttonReady = false;
+    for (let waitAttempt = 0; waitAttempt < 5; waitAttempt++) {
+        if (!replyBtn.disabled && replyBtn.getAttribute('aria-disabled') !== 'true') {
+            buttonReady = true;
+            break;
+        }
+        console.log(`[LaunchGrid] Button not ready, waiting... (attempt ${waitAttempt + 1})`);
+        await sleep(1000);
     }
 
-    if (replyBtn.disabled || replyBtn.getAttribute('aria-disabled') === 'true') {
+    // Check Twitter's character counter to detect if over limit
+    // Twitter shows a red circle or a number when over limit
+    const charCounterSelectors = [
+        '[data-testid="tweetTextarea_0_progressIndicator"]', // Progress ring
+        'div[role="progressbar"]',
+        '.public-DraftEditorPlaceholder-root + div span' // Character count
+    ];
+
+    let isOverLimit = false;
+    const charCounter = document.querySelector(charCounterSelectors.join(','));
+    if (charCounter) {
+        // If counter shows red color or negative number, we're over limit
+        const counterText = charCounter.innerText || '';
+        const counterStyle = window.getComputedStyle(charCounter);
+        const isRed = counterStyle.color.includes('255') || counterStyle.color.includes('rgb(244'); // Twitter's red
+        if (counterText.startsWith('-') || isRed) {
+            isOverLimit = true;
+            console.warn(`[LaunchGrid] Character limit exceeded! Counter shows: ${counterText}`);
+        }
+    }
+
+    if (!buttonReady) {
         const currentLen = editor.innerText.length;
-        throw new Error(`Post button disabed. Text length: ${currentLen}. Limit might be exceeded.`);
+        if (isOverLimit) {
+            throw new Error(`Text too long (${currentLen} chars). Twitter character limit exceeded. Please shorten the content or upgrade to X Premium for longer posts.`);
+        }
+        console.warn('[LaunchGrid] Button still appears disabled but not over char limit. Proceeding with click attempt...');
     }
 
     sendProgress(taskId, "Submitting post...");
@@ -263,16 +293,87 @@ async function performSingleReply(taskId, config) {
     const finalBtn = await waitForElement(btnSelectors, 1000);
     if (!finalBtn) throw new Error("Post button disappeared after dismissal sequence");
 
+    // Don't throw error for disabled button - Premium accounts can post long content
+    // Just log a warning and proceed
     if (finalBtn.disabled || finalBtn.getAttribute('aria-disabled') === 'true') {
         const currentLen = editor.innerText.length;
-        if (currentLen > 280) {
-            throw new Error(`Text too long (${currentLen}/280 chars). Twitter blocked the post.`);
-        }
-        throw new Error(`Post button disabled. Twitter might be blocking automated posting or text is invalid.`);
+        console.warn(`[LaunchGrid] Button still disabled. Text length: ${currentLen}. Premium allows 25k chars. Proceeding anyway.`);
     }
 
     sendProgress(taskId, "Submitting post...");
-    replyBtn.click();
+
+    // 1. Try Ctrl+Enter/Cmd+Enter shortcut (very robust on Twitter)
+    try {
+        console.log("[LaunchGrid] Attempting Ctrl+Enter shortcut...");
+        editor.focus();
+        const enterEvent = new KeyboardEvent('keydown', {
+            key: 'Enter',
+            code: 'Enter',
+            keyCode: 13,
+            which: 13,
+            ctrlKey: true,
+            metaKey: true, // For Mac
+            bubbles: true,
+            cancelable: true
+        });
+        editor.dispatchEvent(enterEvent);
+        await sleep(500);
+    } catch (e) {
+        console.warn("[LaunchGrid] Shortcut failed:", e);
+    }
+
+    // 2. Try Super Click on the button
+    try {
+        console.log("[LaunchGrid] Locating final Post button...");
+        // Broaden search: include <button> and <div> with role="button"
+        let targetBtn = replyBtn;
+
+        const isNotClickable = (el) => !el || el.disabled || el.getAttribute('aria-disabled') === 'true' || el.offsetParent === null;
+
+        if (isNotClickable(targetBtn)) {
+            console.log("[LaunchGrid] Primary button not clickable, searching by text...");
+            const allInteractive = Array.from(document.querySelectorAll('button, div[role="button"], [data-testid="tweetButton"]'));
+            targetBtn = allInteractive.find(b => {
+                const text = b.innerText.toLowerCase().trim();
+                // Matches "Post", "Post all", "Reply"
+                const isLabelMatch = text === 'post' || text === 'reply' || text === 'post all';
+                return isLabelMatch && b.offsetParent !== null;
+            });
+        }
+
+        if (targetBtn) {
+            console.log("[LaunchGrid] Found target button! Attempting robust click sequence...");
+
+            // Ensure visibility
+            targetBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
+            await sleep(100);
+
+            const coords = targetBtn.getBoundingClientRect();
+            const clientX = coords.left + coords.width / 2;
+            const clientY = coords.top + coords.height / 2;
+
+            // Dispatch holy trinity of click events
+            targetBtn.focus();
+            targetBtn.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, view: window, clientX, clientY }));
+            await sleep(50);
+            targetBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, view: window, clientX, clientY }));
+            await sleep(50);
+            targetBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, view: window, clientX, clientY }));
+            await sleep(50);
+            targetBtn.click();
+
+            // Fallback: If it's a real <button>, sometimes .submit() or dispatching another click helps
+            if (targetBtn.tagName === 'BUTTON') {
+                targetBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+            }
+
+            console.log("[LaunchGrid] Click sequence completed.");
+        } else {
+            console.warn("[LaunchGrid] No clickable Post button found even with broad search.");
+        }
+    } catch (e) {
+        console.warn("[LaunchGrid] Click sequence failed:", e);
+    }
 
     // Reset this flag to ensure we capture the *new* toast
     // Wait for "Your post was sent" toast with "View" link
