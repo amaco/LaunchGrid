@@ -24,7 +24,8 @@ const CONFIG = {
     API_KEY: 'DEVELOPMENT_KEY_CHANGE_ME',
 
     // Polling
-    POLL_INTERVAL_MINUTES: 0.5,  // 30 seconds
+    POLL_INTERVAL_MINUTES: 0.5,  // 30 seconds for TASK polling (user-initiated)
+    ENGAGEMENT_POLL_INTERVAL_MINUTES: 5, // 5 minutes for passive engagement tracking (anti-spam)
 
     // Timeouts
     TASK_EXECUTION_TIMEOUT_MS: 300000,  // 5 minutes (increased for batch)
@@ -34,6 +35,12 @@ const CONFIG = {
     // Retry
     MAX_RETRIES: 3,
     RETRY_DELAY_MS: 2000,
+
+    // Anti-Spam Delays (ranges in ms)
+    BETWEEN_JOB_DELAY_MIN: 8000,  // 8 seconds minimum
+    BETWEEN_JOB_DELAY_MAX: 18000, // 18 seconds maximum
+    TAB_CLOSE_DELAY_MIN: 2000,    // 2 seconds before closing tab
+    TAB_CLOSE_DELAY_MAX: 4000,    // 4 seconds max
 
     // Platform URLs
     PLATFORM_URLS: {
@@ -464,8 +471,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 const EngagementWorker = {
     async init() {
-        // Always create/overwrite the alarm to ensure we have the latest interval
-        chrome.alarms.create('engagement_poll', { periodInMinutes: 0.5 }); // 30 seconds
+        // Use longer interval for passive tracking to avoid spam detection
+        // Add jitter: base 5 minutes + random 0-2 minutes
+        const baseMinutes = CONFIG.ENGAGEMENT_POLL_INTERVAL_MINUTES;
+        const jitterMinutes = Math.random() * 2;
+        const interval = baseMinutes + jitterMinutes;
+
+        chrome.alarms.create('engagement_poll', { periodInMinutes: interval });
+        console.log(`[Engagement] Polling alarm set for ${interval.toFixed(1)} minutes`);
     },
 
     isProcessing: false,
@@ -499,18 +512,24 @@ const EngagementWorker = {
         console.log('[Engagement] Starting Daisy Chain...');
         let tabId = null;
 
+        // ANTI-SPAM: Shuffle job order to avoid predictable patterns
+        const shuffledJobs = this.shuffleArray([...jobs]);
+        console.log(`[Engagement] Processing ${shuffledJobs.length} jobs in randomized order`);
+
         try {
             // 1. Create single background tab
             const tab = await chrome.tabs.create({ url: 'about:blank', active: false });
             tabId = tab.id;
 
-            // 2. Iterate jobs
-            for (const job of jobs) {
+            // 2. Iterate jobs in shuffled order
+            for (const job of shuffledJobs) {
                 try {
                     await this.performCheck(job, tabId);
 
-                    // Random delay between checks to be human-like
-                    const delay = 5000 + Math.random() * 5000;
+                    // ANTI-SPAM: Longer, more varied delays between checks
+                    const delay = CONFIG.BETWEEN_JOB_DELAY_MIN +
+                        Math.random() * (CONFIG.BETWEEN_JOB_DELAY_MAX - CONFIG.BETWEEN_JOB_DELAY_MIN);
+                    console.log(`[Engagement] Waiting ${Math.floor(delay / 1000)}s before next job...`);
                     await sleep(delay);
                 } catch (err) {
                     console.error(`[Engagement] Failed job ${job.id}:`, err);
@@ -519,13 +538,26 @@ const EngagementWorker = {
         } catch (err) {
             console.error('[Engagement] Batch complete with errors.');
         } finally {
-            // 3. Cleanup
+            // 3. ANTI-SPAM: Add delay before closing tab
+            const closeDelay = CONFIG.TAB_CLOSE_DELAY_MIN +
+                Math.random() * (CONFIG.TAB_CLOSE_DELAY_MAX - CONFIG.TAB_CLOSE_DELAY_MIN);
+            await sleep(closeDelay);
+
             if (tabId) {
                 chrome.tabs.remove(tabId).catch(() => { });
             }
             console.log('[Engagement] Batch complete. Tab closed.');
             this.isProcessing = false;
         }
+    },
+
+    // Fisher-Yates shuffle for randomizing job order
+    shuffleArray(array) {
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
     },
 
     async performCheck(job, tabId) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { withExtensionAuth, successResponse, APIContext } from '@/lib/api/middleware';
+import { withEngagementPollAuth, successResponse, APIContext } from '@/lib/api/middleware';
 import { EngagementService } from '@/lib/services/engagement-service';
 
 export const dynamic = 'force-dynamic';
@@ -7,6 +7,8 @@ export const dynamic = 'force-dynamic';
 /**
  * Poll for active engagement jobs
  * GET /api/v1/extension/jobs/poll
+ * 
+ * Rate limited to 5 req/min for anti-spam protection.
  */
 async function handler(request: NextRequest, context: APIContext) {
     // Need to create admin client for background polling if we want it to work without specific user context
@@ -43,4 +45,4 @@ async function handler(request: NextRequest, context: APIContext) {
     });
 }
 
-export const GET = withExtensionAuth(handler);
+export const GET = withEngagementPollAuth(handler);
