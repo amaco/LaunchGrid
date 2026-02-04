@@ -563,67 +563,129 @@ const EngagementWorker = {
     async performCheck(job, tabId) {
         console.log(`[Engagement] Checking ${job.targetUrl}...`);
 
-        // Navigate
-        await chrome.tabs.update(tabId, { url: job.targetUrl });
-        await waitForTabLoad(tabId);
-        await sleep(3000); // Wait for dynamic content
+        try {
+            // Navigate
+            await chrome.tabs.update(tabId, { url: job.targetUrl });
+            await waitForTabLoad(tabId);
+            await sleep(4000); // Wait for dynamic content (increased for reliability)
 
-        // Scrape
-        const metrics = await chrome.scripting.executeScript({
-            target: { tabId },
-            func: () => {
-                // Heuristic scraping for X/Twitter
-                const getText = (selector) => {
-                    const el = document.querySelector(selector);
-                    return el ? el.innerText : null;
-                };
+            // Scrape with multiple fallback selectors
+            const metrics = await chrome.scripting.executeScript({
+                target: { tabId },
+                func: () => {
+                    const parseMetric = (text) => {
+                        if (!text) return 0;
+                        const clean = text.replace(/,/g, '').replace(/\s/g, '').toUpperCase();
+                        let val = parseFloat(clean);
+                        if (isNaN(val)) return 0;
+                        if (clean.includes('K')) val *= 1000;
+                        if (clean.includes('M')) val *= 1000000;
+                        return Math.floor(val);
+                    };
 
-                const parseMetric = (text) => {
-                    if (!text) return 0;
-                    const clean = text.replace(/,/g, '').toUpperCase();
-                    let val = parseFloat(clean);
-                    if (clean.includes('K')) val *= 1000;
-                    if (clean.includes('M')) val *= 1000000;
-                    return Math.floor(val);
-                };
+                    const getMetric = (selectors) => {
+                        for (const selector of selectors) {
+                            try {
+                                const el = document.querySelector(selector);
+                                if (el) {
+                                    const text = el.innerText || el.getAttribute('aria-label') || '';
+                                    const val = parseMetric(text);
+                                    if (val > 0) return val;
+                                }
+                            } catch (e) { }
+                        }
+                        return 0;
+                    };
 
-                // Try to find metric group
-                // X structure changes often, looking for aria-labels or specific test IDs
-                // Views: [href*="/analytics"] or aria-label="X Views"
+                    // Multiple selectors per metric for robustness (X changes DOM often)
+                    const viewSelectors = [
+                        'a[href*="/analytics"]',
+                        '[data-testid="app-text-transition-container"]',
+                        'span[data-testid="view-count"]',
+                        'div[role="group"] a[href*="/analytics"] span'
+                    ];
 
-                // Generic attempt to find the main tweet's metrics bar
-                const viewsEl = document.querySelector('a[href*="/analytics"]');
-                const views = viewsEl ? parseMetric(viewsEl.innerText) : 0;
+                    const likeSelectors = [
+                        '[data-testid="like"] span span',
+                        '[data-testid="like"]',
+                        'div[data-testid="like"] span',
+                        'button[data-testid="like"]'
+                    ];
 
-                // Likes: [data-testid="like"]
-                const likeEl = document.querySelector('[data-testid="like"]');
-                const likes = likeEl ? parseMetric(likeEl.innerText) : 0;
+                    const replySelectors = [
+                        '[data-testid="reply"] span span',
+                        '[data-testid="reply"]',
+                        'div[data-testid="reply"] span'
+                    ];
 
-                // Replies: [data-testid="reply"]
-                const replyEl = document.querySelector('[data-testid="reply"]');
-                const replies = replyEl ? parseMetric(replyEl.innerText) : 0;
+                    const retweetSelectors = [
+                        '[data-testid="retweet"] span span',
+                        '[data-testid="retweet"]',
+                        'div[data-testid="retweet"] span'
+                    ];
 
-                // Retweets: [data-testid="retweet"]
-                const rtEl = document.querySelector('[data-testid="retweet"]');
-                const retweets = rtEl ? parseMetric(rtEl.innerText) : 0;
+                    const views = getMetric(viewSelectors);
+                    const likes = getMetric(likeSelectors);
+                    const replies = getMetric(replySelectors);
+                    const retweets = getMetric(retweetSelectors);
 
-                return { views, likes, replies, retweets };
+                    // Check if we're on a valid tweet page
+                    const isTweetPage = document.querySelector('article[data-testid="tweet"]') !== null;
+                    const pageType = isTweetPage ? 'tweet' : 'unknown';
+
+                    return {
+                        views,
+                        likes,
+                        replies,
+                        retweets,
+                        pageType,
+                        scrapedAt: new Date().toISOString()
+                    };
+                }
+            });
+
+            const result = metrics[0]?.result;
+
+            if (!result) {
+                console.warn(`[Engagement] Scrape returned no result for ${job.targetUrl}`);
+                return;
             }
-        });
 
-        const result = metrics[0].result;
-        console.log(`[Engagement] scraped:`, result);
+            console.log(`[Engagement] Scraped:`, result);
 
-        // Report
-        if (result) {
-            await fetch(`${CONFIG.API_URL}/jobs/${job.id}/result`, {
+            // Only report if we got at least one non-zero metric OR if we're on a valid tweet page
+            const hasMetrics = result.views > 0 || result.likes > 0 || result.replies > 0 || result.retweets > 0;
+
+            if (!hasMetrics && result.pageType !== 'tweet') {
+                console.warn(`[Engagement] No metrics found and not on tweet page. Skipping report.`);
+                return;
+            }
+
+            // Report to API
+            const response = await fetch(`${CONFIG.API_URL}/jobs/${job.id}/result`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'X-API-Key': CONFIG.API_KEY
                 },
-                body: JSON.stringify({ metrics: result })
+                body: JSON.stringify({
+                    metrics: {
+                        views: result.views,
+                        likes: result.likes,
+                        replies: result.replies,
+                        retweets: result.retweets,
+                        timestamp: result.scrapedAt
+                    }
+                })
             });
+
+            if (!response.ok) {
+                console.error(`[Engagement] API error reporting metrics: ${response.status}`);
+            } else {
+                console.log(`[Engagement] Successfully reported metrics for job ${job.id}`);
+            }
+        } catch (err) {
+            console.error(`[Engagement] Error checking ${job.targetUrl}:`, err);
         }
     }
 };
